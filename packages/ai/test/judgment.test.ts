@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
 	type ApiKeyResolveContext,
 	JudgmentParseError,
+	LayaJudge,
 	parseChoiceReply,
 	parseNoulReply,
 	parseScoreReply,
@@ -302,5 +303,73 @@ describe("TypeSafeJudge", () => {
 		const definition = getProviderDefinition("typesafe");
 		expect(definition?.envKeys).toBe("TYPESAFE_API_KEY");
 		expect(typeof definition?.login).toBe("function");
+	});
+});
+
+describe("LayaJudge", () => {
+	const request = {
+		state: "You were charged twice for invoice #4411.",
+		questions: {
+			dept: {
+				type: "choice",
+				instructions: "Route to the right department.",
+				criteria: { billing: "money, invoices, refunds", support: "help, how-to" },
+			},
+		},
+	} as const;
+
+	function answered() {
+		return Response.json({
+			model: "laya-rl-agent",
+			answers: {
+				dept: {
+					type: "choice",
+					choice: "billing",
+					probabilities: { billing: 0.77, support: 0.23 },
+					confidence: 0.38,
+				},
+			},
+			latency_ms: 822,
+		});
+	}
+
+	it("posts state and questions to /judge with zero-token usage", async () => {
+		const calls: { url: string; init: RequestInit | undefined }[] = [];
+		const judge = new LayaJudge({
+			baseUrl: "http://127.0.0.1:3777/",
+			fetch: async (url, init) => {
+				calls.push({ url: String(url), init });
+				return answered();
+			},
+		});
+
+		const result = await judge.judge(request);
+
+		expect(calls).toHaveLength(1);
+		expect(calls[0].url).toBe("http://127.0.0.1:3777/judge");
+		expect(JSON.parse(String(calls[0].init?.body))).toEqual({ state: request.state, questions: request.questions });
+		expect(result.api).toBe("laya");
+		expect(result.answers.dept.choice).toBe("billing");
+		expect(result.usage.totalTokens).toBe(0);
+		expect(result.usage.cost.total).toBe(0);
+	});
+
+	it("rejects answers of the wrong type and non-2xx without retrying", async () => {
+		const mismatched = new LayaJudge({
+			baseUrl: "http://127.0.0.1:3777",
+			fetch: async () => Response.json({ answers: { dept: { type: "noul", noul: 0.5 } } }),
+		});
+		await expect(mismatched.judge(request)).rejects.toThrow(/missing a "choice" answer/);
+
+		let calls = 0;
+		const down = new LayaJudge({
+			baseUrl: "http://127.0.0.1:3777",
+			fetch: async () => {
+				calls++;
+				return new Response("down", { status: 500 });
+			},
+		});
+		await expect(down.judge(request)).rejects.toThrow(/500/);
+		expect(calls).toBe(1);
 	});
 });

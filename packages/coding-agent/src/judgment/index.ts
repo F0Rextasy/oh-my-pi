@@ -5,6 +5,7 @@
  * recreating feature consumers.
  */
 import {
+	type Answer,
 	type AssistantMessage,
 	chatTextBackend,
 	isJudgmentApi,
@@ -12,6 +13,8 @@ import {
 	type JudgeOptions,
 	type JudgmentRequest,
 	type JudgmentResult,
+	LayaJudge,
+	layaJudgeUrl,
 	type Model,
 	type Questions,
 	type TextBackend,
@@ -24,7 +27,7 @@ import {
 } from "@oh-my-pi/pi-ai";
 import * as AIError from "@oh-my-pi/pi-ai/error";
 import { calculateCost } from "@oh-my-pi/pi-catalog/models";
-import { prompt } from "@oh-my-pi/pi-utils";
+import { $env, prompt } from "@oh-my-pi/pi-utils";
 import type { ModelRegistry } from "../config/model-registry";
 import { formatModelStringWithRouting, resolveRoleChain, type RoleChainCandidate } from "../config/model-resolver";
 import { roleCandidatePool } from "../config/model-roles";
@@ -136,6 +139,29 @@ export class ChainJudge implements Judge {
 		request: JudgmentRequest<Q>,
 		options: JudgeOptions = {},
 	): Promise<JudgmentResult<Q>> {
+		// Opt-in local fast path: LAYA_JUDGE_URL set means a laya-judge sidecar
+		// answers first. Confident answers return directly (zero tokens);
+		// anything else falls through to the role chain below. Candidate-specific
+		// callers (withCandidate) bypass this on purpose.
+		const laya = layaJudgeFromEnv();
+		if (laya) {
+			try {
+				const result = await laya.judge(request, options);
+				if (minAnswerConfidence(result.answers) >= layaMinConfidence()) {
+					this.#deps.onUsage?.({
+						role: "judge",
+						api: result.api,
+						provider: result.provider,
+						model: result.model,
+						usage: result.usage,
+						stopReason: "stop",
+					});
+					return result;
+				}
+			} catch {
+				// Sidecar down or malformed: fall through to the chain.
+			}
+		}
 		return this.withCandidate(candidate => candidate.judge(request, options), options);
 	}
 
@@ -228,6 +254,28 @@ export class ChainJudge implements Judge {
 		});
 		return new TextJudge(backend);
 	}
+}
+
+/** LAYA_JUDGE_URL set → a sidecar-backed judge; unset → undefined (chain untouched). */
+function layaJudgeFromEnv(): LayaJudge | undefined {
+	if (!layaJudgeUrl()) return undefined;
+	return new LayaJudge();
+}
+
+/** Minimum answer confidence that keeps a laya verdict; below it the chain takes over. */
+function layaMinConfidence(): number {
+	const raw = Number($env.LAYA_MIN_CONFIDENCE);
+	return Number.isFinite(raw) && raw >= 0 && raw <= 1 ? raw : 0.6;
+}
+
+/** Lowest per-answer confidence; noul answers use distance from 0.5 as the proxy. */
+function minAnswerConfidence(answers: Record<string, Answer>): number {
+	let min = 1;
+	for (const answer of Object.values(answers)) {
+		if ("choice" in answer || "score" in answer) min = Math.min(min, answer.confidence);
+		else min = Math.min(min, Math.abs(answer.noul - 0.5) * 2);
+	}
+	return min;
 }
 
 /** Keyword completions through the shared on-device tiny-model worker. */

@@ -169,6 +169,94 @@ describe("ChainJudge", () => {
 		);
 	});
 
+	it("answers from the laya sidecar when confident and journals zero-token usage", async () => {
+		process.env.LAYA_JUDGE_URL = "http://127.0.0.1:3777";
+		try {
+			const settings = Settings.isolated({ modelRoles: { judge: "typesafe/jev-preview" } });
+			const registry = makeRegistry([JEV_PREVIEW], { typesafe: "ts-key" });
+			const urls: string[] = [];
+			vi.spyOn(globalThis, "fetch").mockImplementation(
+				asGlobalFetch(async url => {
+					urls.push(String(url));
+					return Response.json({
+						model: "laya-rl-agent",
+						answers: {
+							level: { type: "choice", choice: "low", probabilities: { low: 0.9, high: 0.1 }, confidence: 0.8 },
+						},
+						latency_ms: 200,
+					});
+				}),
+			);
+			const onUsage = vi.fn();
+
+			const result = await new ChainJudge({ settings, registry, onUsage }).judge({
+				state: "refactor the scheduler",
+				questions: { level: TIER_QUESTION },
+			});
+
+			expect(result.answers.level.choice).toBe("low");
+			expect(result.api).toBe("laya");
+			expect(urls).toEqual(["http://127.0.0.1:3777/judge"]);
+			expect(onUsage).toHaveBeenCalledWith(
+				expect.objectContaining({ role: "judge", api: "laya", provider: "laya" }),
+			);
+			expect(onUsage).toHaveBeenCalledTimes(1);
+		} finally {
+			delete process.env.LAYA_JUDGE_URL;
+		}
+	});
+
+	it("falls through to the chain when laya is unsure or down", async () => {
+		process.env.LAYA_JUDGE_URL = "http://127.0.0.1:3777";
+		try {
+			const settings = Settings.isolated({ modelRoles: { judge: "typesafe/jev-preview" } });
+			const registry = makeRegistry([JEV_PREVIEW], { typesafe: "ts-key" });
+			let mode = "unsure";
+			vi.spyOn(globalThis, "fetch").mockImplementation(
+				asGlobalFetch(async url => {
+					if (String(url).endsWith("/judge")) {
+						if (mode === "down") throw new Error("connection refused");
+						return Response.json({
+							answers: {
+								level: {
+									type: "choice",
+									choice: "low",
+									probabilities: { low: 0.55, high: 0.45 },
+									confidence: 0.1,
+								},
+							},
+						});
+					}
+					return Response.json({
+						model: "jev-1.13.0",
+						answers: {
+							level: { type: "choice", choice: "high", probabilities: { low: 0.1, high: 0.9 }, confidence: 0.8 },
+						},
+						usage: { input_tokens: 8, output_tokens: 2 },
+					});
+				}),
+			);
+			const onUsage = vi.fn();
+
+			const unsure = await new ChainJudge({ settings, registry, onUsage }).judge({
+				state: "refactor the scheduler",
+				questions: { level: TIER_QUESTION },
+			});
+			expect(unsure.answers.level.choice).toBe("high");
+			expect(unsure.api).toBe("typesafe");
+
+			mode = "down";
+			const fallback = await new ChainJudge({ settings, registry, onUsage }).judge({
+				state: "refactor the scheduler",
+				questions: { level: TIER_QUESTION },
+			});
+			expect(fallback.answers.level.choice).toBe("high");
+			expect(fallback.api).toBe("typesafe");
+		} finally {
+			delete process.env.LAYA_JUDGE_URL;
+		}
+	});
+
 	it("journals judgment usage on the active branch and stops once the session changes", async () => {
 		const settings = Settings.isolated({ modelRoles: { judge: "typesafe/jev-preview" } });
 		const registry = makeRegistry([JEV_PREVIEW], { typesafe: "ts-key" });
