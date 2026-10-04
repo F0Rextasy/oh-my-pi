@@ -53,6 +53,7 @@ import {
 	findStrictToolSchemaViolation,
 	flattenExclusiveRequiredRootUnion,
 	NO_STRICT,
+	normalizeSchemaForGoogle,
 	normalizeSchemaForMoonshot,
 	sanitizeSchemaForGrammar,
 	toolWireSchema,
@@ -2834,12 +2835,19 @@ function convertTools(
 		// build a GBNF grammar from the schema and 400 with
 		// `Unrecognized schema: true` on the bare boolean subschema
 		// `toolWireSchema` emits for open fields (issue #5914).
+		// Google-backed gateways (Venice's Gemini route) apply Google's own
+		// tool-schema constraints and reject a JSON Schema type array — the
+		// `["number","null"]` form `toolWireSchema` emits for an open field —
+		// as an opaque `invalid_argument`. devin.ts already normalizes its
+		// Gemini route for the same reason.
 		const emittedParameters =
 			compat.toolSchemaFlavor === "moonshot-mfjs"
 				? (normalizeSchemaForMoonshot(wireParameters) as Record<string, unknown>)
 				: compat.toolSchemaFlavor === "grammar"
 					? sanitizeSchemaForGrammar(wireParameters)
-					: wireParameters;
+					: compat.toolSchemaFlavor === "google"
+						? (normalizeSchemaForGoogle(wireParameters) as Record<string, unknown>)
+						: wireParameters;
 		const violation = findStrictToolSchemaViolation(emittedParameters, "#", { rejectRootObjectUnion });
 		if (violation) {
 			logger.warn(

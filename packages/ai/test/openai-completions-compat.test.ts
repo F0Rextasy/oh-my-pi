@@ -21,6 +21,7 @@ import { Effort } from "@oh-my-pi/pi-catalog/effort";
 import { clampThinkingLevelForModel, getSupportedEfforts } from "@oh-my-pi/pi-catalog/model-thinking";
 import { getBundledModel } from "@oh-my-pi/pi-catalog/models";
 import type { ResolvedOpenAICompat } from "@oh-my-pi/pi-catalog/types";
+import { classifyModel } from "@oh-my-pi/pi-catalog/compat/taxonomy";
 import { serializeAlibabaTokenPlanCredential } from "@oh-my-pi/pi-catalog/wire/alibaba-token-plan";
 
 const gpt4oMiniSpec: ModelSpec<"openai-completions"> = (() => {
@@ -2821,5 +2822,73 @@ describe("grammar tool-schema normalization (issue #5914)", () => {
 		const properties = toObject(toolParameters(payload, "task").properties);
 		// Off the grammar path the open field keeps the normalized bare boolean.
 		expect(properties?.outputSchema).toBe(true);
+	});
+});
+
+describe("google tool-schema flavor on a Venice Gemini route (#12269)", () => {
+	// Venice serves several model families through one OpenAI-compatible envelope.
+	// Its Gemini route applies Google's tool-schema constraints and rejects a JSON
+	// Schema type array — the `["string","null"]` form `toolWireSchema` emits for
+	// an open field — as an opaque invalid_argument, so tool calls fail. devin.ts
+	// already normalizes its Gemini route for exactly this reason.
+	function veniceGeminiModel(): Model<"openai-completions"> {
+		return buildModel({
+			...gpt4oMiniSpec,
+			api: "openai-completions",
+			provider: "venice",
+			baseUrl: "https://api.venice.ai/api/v1",
+			id: "gemini-3-flash-preview",
+		} as ModelSpec<"openai-completions">);
+	}
+
+	function veniceQwenModel(): Model<"openai-completions"> {
+		return buildModel({
+			...gpt4oMiniSpec,
+			api: "openai-completions",
+			provider: "venice",
+			baseUrl: "https://api.venice.ai/api/v1",
+			id: "qwen3-235b-a22b",
+		} as ModelSpec<"openai-completions">);
+	}
+
+	function openFieldTool() {
+		return [
+			{
+				name: "finish",
+				description: "Finish the task",
+				parameters: {
+					type: "object",
+					properties: { note: { anyOf: [{ type: "string" }, { type: "null" }] } },
+					required: [],
+				},
+			},
+		] as never;
+	}
+
+	it("resolves the google flavor for a Venice gemini model", () => {
+		const model = veniceGeminiModel();
+		expect(classifyModel("venice", "gemini-3-flash-preview").class).toBe("gemini");
+		expect((model.compat as { toolSchemaFlavor?: string }).toolSchemaFlavor).toBe("google");
+	});
+
+	it("emits a scalar type for an open field instead of a type array", async () => {
+		const model = veniceGeminiModel();
+		const payload = await captureOpenAICompletionsPayload(model, { ...baseContext(), tools: openFieldTool() });
+		const wireTools = (payload.tools ?? []) as Array<Record<string, unknown>>;
+		const fn = toObject(toObject(wireTools[0])?.function);
+		const properties = toObject(toObject(fn?.parameters)?.properties);
+		const note = toObject(properties?.note);
+		expect(note).not.toBeNull();
+		// Google wants a scalar type plus a nullable marker, never `type: [...]`.
+		expect(Array.isArray(note?.type)).toBe(false);
+		expect(note?.type).toBe("string");
+	});
+
+	it("leaves Venice's non-Google models on the raw path", () => {
+		// The axis is scalar, so the flavor must key on the model class — otherwise
+		// every Venice model would be normalized as if it were Gemini-backed.
+		const model = veniceQwenModel();
+		expect(model.compat.toolSchemaFlavor).toBeUndefined();
+		expect(model.id).toBeTruthy();
 	});
 });

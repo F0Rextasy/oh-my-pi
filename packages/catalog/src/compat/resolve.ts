@@ -577,7 +577,16 @@ function detectOpenAICompat(
 				? "moonshot-mfjs"
 				: d.isLocalOpenAICompatBackend
 					? "grammar"
-					: undefined,
+					: // Venice serves several model families through one OpenAI-compatible
+						// envelope, and its Gemini route applies Google's tool-schema
+						// constraints — a JSON Schema type array (`["number","null"]`,
+						// what `toolWireSchema` emits for open fields) is rejected there.
+						// Keyed on the model class rather than declared in KDL because the
+						// axis is scalar and the provider also serves non-Google models;
+						// the same shape devin.ts applies for its Gemini route.
+						d.isVenice && classifyModel(provider, spec.id).class === "gemini"
+						? "google"
+						: undefined,
 		streamFirstEventTimeoutMs: d.isLocalServingBackend ? 0 : undefined,
 		streamIdleTimeoutMs,
 		stripDeepseekSpecialTokens: facts.is("deepseek") && (provider === "nvidia" || provider === "deepseek"),

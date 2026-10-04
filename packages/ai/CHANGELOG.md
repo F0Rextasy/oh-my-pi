@@ -10,6 +10,9 @@
 
 - Codex native-lane steering rejections (`unsupported_native_inflight_message`) now classify as retryable from their error text alone, matching the provider's own classification, and `AIError.isCodexSteerRejection()` identifies them so the agent retry can stay on the same model ([#14242](https://github.com/can1357/oh-my-pi/pull/14242) by [@alphastorm](https://github.com/alphastorm))
 - Fixed replayed Responses and Codex history, including persisted Codex user/developer and assistant items, sending `detail: "original"` images to endpoints whose `supportsImageDetailOriginal` is off ([#13687](https://github.com/can1357/oh-my-pi/pull/13687) by [@alphastorm](https://github.com/alphastorm)).
+### Fixed
+
+- Fixed tool calls failing on Venice's Gemini models. Venice serves several model families through one OpenAI-compatible envelope and its Gemini route applies Google's tool-schema constraints, so the JSON Schema type array that `toolWireSchema` emits for an open field was rejected; those models now get the same Google schema normalization `devin` already applies to its Gemini route ([#12269](https://github.com/can1357/oh-my-pi/issues/12269)).
 
 ## [18.6.1] - 2026-10-04
 
