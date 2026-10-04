@@ -292,7 +292,7 @@ export class Vocalizer {
 	#pushBypassingEnabledGate(text: string): void {
 		if (!text) return;
 		const speechSettings = this.#modelSource?.settings ?? settings;
-		if (this.#enhanced || (!this.#speakable && this.#enhancer && speechSettings.get("speech.enhanced"))) {
+		if (this.#enhanced || (!this.#speakable && this.#enhancer && cfgSpeechEnhanced.get(speechSettings))) {
 			this.#pushEnhanced(text);
 			return;
 		}
