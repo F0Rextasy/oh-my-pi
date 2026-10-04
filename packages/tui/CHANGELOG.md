@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed the footer under-reporting session cost by omitting every `task` subagent's spend, which arrives in a toolResult rather than an assistant message ([#12039](https://github.com/can1357/oh-my-pi/issues/12039)).
+
 ## [18.6.1] - 2026-10-04
 
 ### Fixed
