@@ -483,8 +483,8 @@ export interface InteractiveModeContext {
 	applyCwdChange(newCwd: string): Promise<boolean>;
 
 	// Selector handling
-	showSettingsSelector(): void;
-	/** Open the fullscreen `/usage` dashboard overlay for the given reports. */
+	/** Open `/settings`, optionally pre-selecting one setting row. */
+	showSettingsSelector(focusPath?: string): void;
 	showUsageDashboard(reports: UsageReport[]): void;
 	showAdvisorConfigure(): void;
 	showHistorySearch(): void;

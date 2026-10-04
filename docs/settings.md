@@ -843,8 +843,14 @@ tui:
 | `display.pinnedAgents`        | enum    | `collapsed`      | Pinned live-agent jump list above the editor: `off` hides it, `collapsed` shows a few rows with an expander, `full` lists all. |
 | `display.subagentLivePreview` | boolean | `false`          | Show each pinned subagent's current (or most recent) tool call beneath its jump-list row. |
 | `tui.resizeScrollback`        | enum    | `rebuild`        | How a settled width resize refreshes transcript rows kept in terminal scrollback: `append` replays the transcript at the new width below retained history, `rebuild` erases pane scrollback then replays one current-width copy, `preserve` repaints only the viewport. |
+| `statusLine.leftSegments`      | array   | `["vim","model","mode","path","git","pr"]` | Segment ids drawn from the left edge, in order. Needs `statusLine.preset: custom`. Editable as a checkbox list under Appearance → Status Line, or run `/statusline`. |
+| `statusLine.rightSegments`     | array   | `["session_name","token_total","cost","context_pct"]` | Segment ids right-aligned against the right edge, in order. Same editor and command. |
 
 For a custom status line, set `statusLine.preset: custom` and configure `statusLine.leftSegments`, `statusLine.rightSegments`, and `statusLine.segmentOptions`. Include `status` in either segment list to render extension statuses registered through `ctx.ui.setStatus()`, ordered by key and joined inline. Set `statusLine.showHookStatus: false` to suppress the same statuses in the footer.
+
+**Choosing segments.** Run `/statusline`, or open `/settings` → Appearance → Status Line and pick **Left Segments** / **Right Segments**. Each segment is a checkbox with a one-line description of what it shows; type to filter the list. A pre-built `preset` other than `custom` replaces both lists, so switch the preset to `custom` first to edit them. Changes apply live — the preview under the list shows the bar as you toggle.
+
+**Segment colours.** Segments fall into two colour classes. Identity segments (`model`, `mode`, `pi`, `session_name`, `pr`) take a colour derived from the session name, so they recolour together per session; status segments (`cost`, `token_*`, `cache_*`) keep fixed theme colours. `statusLine.sessionAccent: false` pins the identity segments to their theme colour, and a theme or light/dark change recolours the status segments.
 
 The `path` segment abbreviates the home directory to `~`. On Windows, shared path formatting recognizes both the long home name and its existing 8.3 aliases (such as `ADMINI~1`), including in tool labels and error text. Only the home prefix is abbreviated; remaining path components keep their spelling, and formatting does not change the working directory or environment. Set `statusLine.segmentOptions.path.abbreviate: false` to keep the full path in the status line.
 

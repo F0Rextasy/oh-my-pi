@@ -44,6 +44,13 @@ export interface StatusLineSegmentOptions {
 
 export interface StatusLineSettings {
 	preset?: StatusLinePreset;
+	/**
+	 * The whole bar as one ordered list, which is how the editor presents it —
+	 * the bar is a single line, not two. The renderer splits it into its drawn
+	 * groups using the segments every preset places at the right end.
+	 */
+	segments?: StatusLineSegmentId[];
+	/** The left group's list; still what the presets carry. */
 	leftSegments?: StatusLineSegmentId[];
 	rightSegments?: StatusLineSegmentId[];
 	separator?: StatusLineSeparatorStyle;

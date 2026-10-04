@@ -10,6 +10,7 @@ import {
 	STATUS_LINE_SEGMENT_IDS,
 	STATUS_LINE_SEPARATOR_VALUES,
 } from "@oh-my-pi/pi-tui/status-line/schema";
+import type { StatusLineSegmentId } from "@oh-my-pi/pi-tui/status-line/types";
 import { setChatTranscriptDisplayPreferences } from "@oh-my-pi/pi-tui/chat/display-preferences";
 import { setEditorGapComposerShape } from "@oh-my-pi/pi-tui/prompt/editor-top-gap";
 import { setEmojiAutocompleteEnabled } from "@oh-my-pi/pi-tui/prompt/prompt-action-autocomplete";
@@ -273,6 +274,56 @@ export const cfgStatusLineShowHookStatus = register({
 	},
 });
 
+/**
+ * Picker text per segment id.
+ *
+ * Declared as a `Record` rather than an array so the compiler enforces
+ * exhaustiveness: adding an id to `STATUS_LINE_SEGMENT_IDS` without an entry
+ * here is a type error, not a segment that silently fails to appear in
+ * `/settings`. Order in the picker follows the canonical id list.
+ *
+ * Without these `ui.options` the overlay hides an array entirely ("arrays
+ * without declared options stay config-file only"), which is why the two
+ * segment lists were reachable only by hand-editing `config.yml`.
+ */
+const STATUS_LINE_SEGMENT_LABELS: Record<
+	StatusLineSegmentId,
+	{ label: string; description: string }
+> = {
+	pi: { label: "Agent", description: "omp brand glyph with working spinner and turn timer" },
+	status: { label: "Extension statuses", description: "Status text set by extensions and hooks" },
+	model: { label: "Model", description: "Model name and thinking level" },
+	mode: { label: "Mode", description: "Plan, vibe, goal, loop, prewalk and codex-reset state" },
+	path: { label: "Path", description: "Working directory, shortened to fit" },
+	git: { label: "Git", description: "Branch plus staged/unstaged/untracked counts" },
+	pr: { label: "Pull request", description: "Open PR number and link for the current branch" },
+	subagents: { label: "Subagents", description: "Running and total subagent count" },
+	token_in: { label: "Tokens in", description: "Cumulative input tokens" },
+	token_out: { label: "Tokens out", description: "Cumulative output tokens" },
+	token_total: { label: "Tokens total", description: "Combined input and output tokens" },
+	token_rate: { label: "Token rate", description: "Live generation speed in tok/s" },
+	cost: { label: "Cost", description: "Estimated session spend, re-priced on each tariff change" },
+	context_pct: { label: "Context percent", description: "Context window occupancy as a percentage" },
+	context_total: { label: "Context total", description: "Occupied tokens against the window size" },
+	time_spent: { label: "Active time", description: "Time spent processing, excluding idle" },
+	time: { label: "Clock", description: "Wall-clock time, 12h or 24h" },
+	session: { label: "Session", description: "Short session id for telling sessions apart" },
+	hostname: { label: "Hostname", description: "Machine name, for multi-host sessions" },
+	cache_read: { label: "Cache read", description: "Tokens served from the prompt cache" },
+	cache_write: { label: "Cache write", description: "Tokens written to the prompt cache" },
+	cache_hit: { label: "Cache hit", description: "Prompt-cache hit ratio" },
+	session_name: { label: "Session name", description: "Renamed session title, tinted per session" },
+	usage: { label: "Rate limits", description: "Provider usage windows and reset times" },
+	collab: { label: "Collab", description: "Host or guest marker and participant count" },
+	stream: { label: "Stream viewers", description: "Live stream viewer count" },
+	vim: { label: "Vim mode", description: "Current vim mode while vim editing is on" },
+};
+
+const STATUS_LINE_SEGMENT_OPTIONS = STATUS_LINE_SEGMENT_IDS.map(id => ({
+	value: id,
+	...STATUS_LINE_SEGMENT_LABELS[id],
+}));
+
 export const cfgStatusLineLeftSegments = register({
 	id: "statusLine.leftSegments",
 	type: "array",
@@ -285,6 +336,20 @@ export const cfgStatusLineRightSegments = register({
 	type: "array",
 	default: CUSTOM_STATUS_LINE_DEFAULTS.right,
 	items: { values: STATUS_LINE_SEGMENT_IDS, label: "status line segment" },
+});
+
+export const cfgStatusLineSegments = register({
+	id: "statusLine.segments",
+	type: "array",
+	default: CUSTOM_STATUS_LINE_DEFAULTS.left,
+	items: { values: STATUS_LINE_SEGMENT_IDS, label: "status line segment" },
+	ui: {
+		tab: "appearance",
+		group: "Status Line",
+		label: "Center Bar",
+		description: "The whole bar as one list, in order. Segments every omp preset puts at the right end take that end; the rest fill from the left.",
+		options: STATUS_LINE_SEGMENT_OPTIONS,
+	},
 });
 
 export const cfgStatusLineSegmentOptions = register({
