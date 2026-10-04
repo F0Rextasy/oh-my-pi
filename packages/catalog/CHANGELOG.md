@@ -15,6 +15,9 @@
 ### Fixed
 
 - Fixed Google Antigravity listing models the signed-in account cannot use, such as Claude Opus 5.5 and Sonnet 5.5 on plans without them, which failed every request with `404 Requested entity was not found`. After a successful model refresh and on subsequent restarts, only models in the account's own Antigravity model list are offered ([#14328](https://github.com/can1357/oh-my-pi/issues/14328)).
+### Fixed
+
+- Fixed the `extra-body` compat axis and `compat.extraBody` being dropped for every API except chat completions. The axis now applies to the OpenAI Responses record and to Anthropic Messages, and both resolved compat records carry the field so a configured extra body survives `buildModel` ([#12087](https://github.com/can1357/oh-my-pi/issues/12087)).
 
 ## [18.6.0] - 2026-10-03
 
