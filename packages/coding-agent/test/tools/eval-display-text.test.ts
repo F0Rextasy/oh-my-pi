@@ -181,6 +181,42 @@ describe("EvalTool display() text surfacing", () => {
 		expect(text.length).toBeLessThan(20000);
 	});
 
+	it("keeps a read's continuation notice when the display preview is capped", async () => {
+		// A read that hit the size limit ends its text with `[Showing … Use :N
+		// to continue]`. That line is the only thing telling the model how to
+		// get the rest of the file, and a head-only truncation of the serialised
+		// JSON drops it — `details`, which carries nextOffset, is serialised
+		// after it and goes with it.
+		vi.spyOn(pyKernel, "checkPythonKernelAvailability").mockResolvedValue({ ok: true });
+		const body = "y".repeat(20_000);
+		const notice = "[Showing lines 1-488 of 921 (50.0KB limit). Use :489 to continue]";
+		vi.spyOn(evalIndex.jsBackend, "execute").mockResolvedValue(
+			baseResult({
+				displayOutputs: [
+					{
+						type: "json",
+						data: { text: `${body}\n${notice}`, details: { truncation: { nextOffset: 488 } } },
+					},
+				],
+			}) as never,
+		);
+
+		const tool = new EvalTool(makeSession());
+		const result = await tool.execute("call-continuation", {
+			language: "js",
+			code: "display(read('big.txt'));",
+		});
+
+		const text = result.content.map(c => (c.type === "text" ? c.text : "")).join("\n");
+		// The notice is the part the model acts on: it names the offset to read
+		// next. `details.truncation.nextOffset` is serialised *after* the text
+		// field and still falls inside the cut — see the PR body.
+		expect(text).toContain("Use :489 to continue");
+		// Re-attached as a tail, so it must not also appear inline as well.
+		expect(text.split("Use :489 to continue").length - 1).toBe(1);
+		expect(text).toContain("ch elided");
+	});
+
 	it("keeps oversized display details bounded and spills the full value to the artifact", async () => {
 		using tempDir = TempDir.createSync("@omp-eval-display-");
 		const artifactPath = tempDir.join("eval.log");
