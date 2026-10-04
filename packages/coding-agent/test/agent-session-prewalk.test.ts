@@ -789,6 +789,78 @@ describe("AgentSession prewalk", () => {
 		expect(showStatus).toHaveBeenCalledWith(expect.stringContaining("Prewalk reset"));
 	});
 
+	it("/prewalk off disarms the switch so later turns never hand off to @smol", async () => {
+		const primary = modelOrThrow("claude-sonnet-4-5");
+		const target = modelOrThrow("claude-sonnet-4-6");
+
+		const settings = Settings.isolated({ "compaction.enabled": false });
+		const mock = createMockModel({ responses: [toolCall("off-write", "write"), { content: ["done"] }] });
+		const requested: string[] = [];
+		const agent = new Agent({
+			getApiKey: () => "test-key",
+			initialState: {
+				model: primary,
+				systemPrompt: ["Test"],
+				tools: [writeTool as AgentTool],
+				messages: [],
+				thinkingLevel: Effort.Medium,
+			},
+			convertToLlm,
+			streamFn: (model, context, options) => {
+				requested.push(`${model.provider}/${model.id}`);
+				return mock.stream(model, context, options);
+			},
+		});
+		const sessionManager = SessionManager.inMemory();
+		session = new AgentSession({
+			agent,
+			sessionManager,
+			settings,
+			modelRegistry,
+			// `todo` is deliberately absent so the todo gate is open; the write call
+			// below is the implementation action that fires the handoff when armed.
+			toolRegistry: new Map([[writeTool.name, writeTool as AgentTool]]),
+			thinkingLevel: Effort.Medium,
+		});
+		const showStatus = vi.fn();
+		const runtime = {
+			ctx: {
+				session,
+				sessionManager,
+				settings,
+				collabGuest: false,
+				showStatus,
+				editor: { setText: vi.fn() },
+				refreshSlashCommandState: vi.fn(),
+			} as unknown as InteractiveModeContext,
+		} satisfies TuiSlashCommandRuntime;
+
+		settings.setModelRole("smol", `${target.provider}/${target.id}:medium`);
+		expect(await executeBuiltinSlashCommand("/prewalk", runtime)).toBe(true);
+		expect(session.getPrewalkState()?.target.id).toBe(target.id);
+
+		expect(await executeBuiltinSlashCommand("/prewalk off", runtime)).toBe(true);
+		expect(session.getPrewalkState()).toBeUndefined();
+		expect(showStatus).toHaveBeenLastCalledWith(
+			"Prewalk off: dropped the armed handoff; staying on the active model.",
+		);
+		expect(
+			agent.state.messages.some(message => message.role === "custom" && message.customType === "prewalk-plan"),
+		).toBe(false);
+
+		// The write call is the implementation action that fires the handoff. With the arm
+		// still live the follow-up turn would run on @smol; disarmed, both turns stay on
+		// the planning model and the session never leaves it.
+		await session.prompt("do the task");
+
+		expect(requested).toEqual([`${primary.provider}/${primary.id}`, `${primary.provider}/${primary.id}`]);
+		expect(session.model?.id).toBe(primary.id);
+
+		// A second /prewalk off with nothing armed is reported, not silently ignored.
+		expect(await executeBuiltinSlashCommand("/prewalk off", runtime)).toBe(true);
+		expect(showStatus).toHaveBeenLastCalledWith("Prewalk off: no handoff was armed.");
+	});
+
 	it("/prewalk restart returns to @default and re-arms @smol", async () => {
 		const primary = modelOrThrow("claude-sonnet-4-5");
 		const target = modelOrThrow("claude-sonnet-4-6");

@@ -1408,6 +1408,11 @@ export class AgentSession implements SettingsScope {
 		return this.#prewalk.arm(target, thinkingLevel);
 	}
 
+	/** Drop a pending prewalk hand-off from an explicit slash command. */
+	disarmPrewalk(): void {
+		this.#prewalk.disarm();
+	}
+
 	/** Restore a planning model and re-arm prewalk without partially applying a rejected restart. */
 	restartPrewalk(
 		source: Model,
