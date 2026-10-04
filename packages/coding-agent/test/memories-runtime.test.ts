@@ -428,6 +428,79 @@ describe("memories runtime", () => {
 			"# Raw Memories\n\nNo raw memories yet.",
 		);
 	});
+
+	test("phase2 pruning does not delete a skill subtree it could not read", async () => {
+		const fx = await createFixture();
+		vi.spyOn(ai, "completeSimple").mockResolvedValue({
+			stopReason: "end_turn",
+			content: [
+				{
+					type: "text",
+					text: JSON.stringify({
+						memory_md: "# Memory\n\nMerged",
+						memory_summary: "Merged summary",
+						// A skill the model no longer emits, so pruning would remove it.
+						skills: [{ name: "kept", content: "# Kept" }],
+					}),
+				},
+			],
+		} as any);
+
+		const memoryRoot = getMemoryRoot(fx.agentDir, fx.session.sessionManager.getCwd());
+		// A populated subtree that pruning would otherwise delete as "empty".
+		const doomed = path.join(memoryRoot, "skills", "stale-skill");
+		await fs.mkdir(path.join(doomed, "templates"), { recursive: true });
+		await fs.writeFile(path.join(doomed, "SKILL.md"), "# Stale\nReal content.");
+		await fs.writeFile(path.join(doomed, "templates", "old.md"), "stale template");
+
+		// Enforce phase2 with a stage1 output already present.
+		const db = memoryStorage.openMemoryDb(getAgentDbPath(fx.agentDir));
+		memoryStorage.upsertThreads(db, [
+			{
+				id: "thread-a",
+				updatedAt: 100,
+				rolloutPath: "/tmp/a.jsonl",
+				cwd: fx.session.sessionManager.getCwd(),
+				sourceKind: "cli",
+			},
+		]);
+		db.prepare(
+			"INSERT INTO stage1_outputs (thread_id, source_updated_at, raw_memory, rollout_summary, rollout_slug, generated_at) VALUES (?, ?, ?, ?, ?, ?)",
+		).run("thread-a", 100, "raw-a", "summary-a", "alpha", 100);
+		memoryStorage.enqueueGlobalWatermark(db, 100, fx.session.sessionManager.getCwd(), {
+			forceDirtyWhenNotAdvanced: true,
+		});
+		memoryStorage.closeMemoryDb(db);
+
+		// Fail every readdir under the stale skill, as a transient EMFILE would.
+		const realReaddir = fs.readdir;
+		const notice = vi.fn();
+		fx.session.emitNotice = notice;
+		vi.spyOn(fs, "readdir").mockImplementation(((target: string, options?: unknown) => {
+			if (typeof target === "string" && path.resolve(target).startsWith(path.resolve(doomed))) {
+				const error: NodeJS.ErrnoException = new Error("EMFILE: too many open files");
+				error.code = "EMFILE";
+				return Promise.reject(error);
+			}
+			return (realReaddir as (...args: unknown[]) => Promise<unknown>)(target, options as never);
+		}) as never);
+
+		startMemoryStartupTask({
+			session: fx.session,
+			settings: fx.settings,
+			modelRegistry: fx.modelRegistry,
+			agentDir: fx.agentDir,
+			taskDepth: 0,
+		});
+
+		await settle(fx.whenSettled, "phase2 prune after failed read");
+
+		// A failed read must never authorise a recursive delete.
+		expect(await Bun.file(path.join(doomed, "SKILL.md")).exists()).toBe(true);
+		expect(await Bun.file(path.join(doomed, "templates", "old.md")).exists()).toBe(true);
+		// And the failure must reach the user, not just the log file.
+		expect(notice.mock.calls.some(call => String(call[1]).includes("Could not read directory"))).toBe(true);
+	});
 });
 
 describe("buildMemoryToolDeveloperInstructions", () => {
