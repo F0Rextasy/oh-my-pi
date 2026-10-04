@@ -49,6 +49,8 @@
 - Fixed long `/btw` answers in Tern being clipped with no way to scroll: `/btw` now answers in the scrollable BTW history sheet ([#14331](https://github.com/can1357/oh-my-pi/pull/14331) by [@H4vC](https://github.com/H4vC))
 - Fixed `/btw` answers longer than 4 KiB being cut off with `[…truncated]` once they finished ([#14331](https://github.com/can1357/oh-my-pi/pull/14331) by [@H4vC](https://github.com/H4vC))
 - In Tern, Esc puts the BTW history sheet away while an answer keeps streaming (`/btw` reopens it); `x` cancels the answer ([#14331](https://github.com/can1357/oh-my-pi/pull/14331) by [@H4vC](https://github.com/H4vC))
+- Fixed `grep` rejecting `:raw` on an external URL path before fetching it, which made the selector unreachable and left `materializeReadUrlToFile`'s raw mode dead code; `:raw`, `:N-M` and `:N-M:raw` now work on `https://`/`http://` targets. Local paths remain line-range-only, where a verbatim read is the same read ([#14092](https://github.com/can1357/oh-my-pi/issues/14092)).
+- Fixed `grep` treating a semicolon-delimited list of internal URLs (`artifact://3;artifact://4`) as a single URI and silently matching neither, by passing `read`'s `routedUrlPredicate` through `expandDelimitedPathEntries` ([#14091](https://github.com/can1357/oh-my-pi/issues/14091)).
 
 ## [18.6.0] - 2026-10-03
 

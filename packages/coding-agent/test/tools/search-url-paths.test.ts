@@ -123,6 +123,56 @@ describe("search tools with external URL paths", () => {
 		expect(text).not.toContain("outside after");
 	});
 
+	it("search accepts a :raw URL selector and fetches the page", async () => {
+		// Regression for #14092: `:raw` was rejected during path parsing, so
+		// `materializeExternalUrlForSearch` never ran and the URL was never
+		// fetched. The raw flag only means "skip the markdown conversion", which
+		// is meaningful for a remote response and not for a local file.
+		const loadPage = stubLoadPage("alpha\nremote needle\nomega\n", "text/plain");
+		const tools = await createTools(createSession(testDir));
+		const tool = tools.find(entry => entry.name === "grep");
+		expect(tool).toBeDefined();
+
+		const result = await tool!.execute("search-url-raw", {
+			pattern: "remote needle",
+			path: "https://example.com/notes.txt:raw",
+		});
+
+		expect(resultText(result)).toContain("remote needle");
+		expect(loadPage).toHaveBeenCalled();
+	});
+
+	it("search applies a :raw URL selector together with a line range", async () => {
+		stubLoadPage("outside before\nremote needle\noutside after\n", "text/plain");
+		const tools = await createTools(createSession(testDir));
+		const tool = tools.find(entry => entry.name === "grep");
+		expect(tool).toBeDefined();
+
+		const result = await tool!.execute("search-url-raw-range", {
+			pattern: "outside|remote needle",
+			path: "https://example.com/notes.txt:2-2:raw",
+		});
+
+		const text = resultText(result);
+		expect(text).toContain("remote needle");
+		expect(text).not.toContain("outside before");
+		expect(text).not.toContain("outside after");
+	});
+
+	it("search still rejects :raw on a local path", async () => {
+		// The counterpart to the URL case, and the reason the fix is not a blanket
+		// relaxation: a local file is already verbatim, so the selector is a
+		// typo there, not a request.
+		await fs.writeFile(path.join(testDir, "notes.txt"), "alpha\nbeta\n", "utf-8");
+		const tools = await createTools(createSession(testDir));
+		const tool = tools.find(entry => entry.name === "grep");
+		expect(tool).toBeDefined();
+
+		await expect(
+			tool!.execute("search-local-raw", { pattern: "alpha", path: "notes.txt:raw" }),
+		).rejects.toThrow("only line-range selectors");
+	});
+
 	it("ast_edit rejects external URLs instead of staging read-cache files", async () => {
 		stubLoadPage("legacyWrap(x, value)\n", "text/plain");
 		const tools = await createTools(createSession(testDir));

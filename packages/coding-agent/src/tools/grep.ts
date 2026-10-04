@@ -166,17 +166,39 @@ async function parsePathSpecs(rawEntries: readonly string[], cwd: string): Promi
 		let clean = literalFilesystemMatch ? resolveReadPath(entry, cwd) : entry;
 		let ranges: [LineRange, ...LineRange[]] | undefined;
 		if (!literalFilesystemMatch && split.sel) {
-			const parsed = parseLineRanges(split.sel);
-			if (!parsed) {
-				throw new ToolError(
-					`path entry "${entry}" — only line-range selectors like ":50-100" are supported (no ":raw"/":conflicts")`,
-				);
+			// An external URL is fetched whole and materialized before the search
+			// runs, so its display selectors mean what they mean for `read`: `:raw`
+			// keeps the response out of the markdown conversion, `:N-M` filters
+			// matches. A local path has neither affordance — the bytes are already
+			// on disk and a verbatim read of them is the same read — so it stays
+			// line-ranges-only. This is what `materializeExternalUrlForSearch`
+			// below expects: it reads `:raw` off the target, and until the
+			// selector survived validation that code was unreachable.
+			if (parseReadUrlTarget(entry) !== null) {
+				if (!isReadSelectorGrammar(split.sel)) {
+					throw new ToolError(
+						`path entry "${entry}" has an invalid selector ":${split.sel}" — use ":N-M" line ranges, ":raw", or a range plus ":raw"`,
+					);
+				}
+				clean = split.path;
+				ranges = selectorLineRanges(split.sel);
+			} else {
+				const parsed = parseLineRanges(split.sel);
+				if (!parsed) {
+					throw new ToolError(
+						`path entry "${entry}" — only line-range selectors like ":50-100" are supported (no ":raw"/":conflicts")`,
+					);
+				}
+				clean = split.path;
+				ranges = parsed;
 			}
-			if (hasGlobPathChars(split.path) && (await probeLiteralPathExists(split.path, cwd)) === "missing") {
+			if (
+				ranges &&
+				hasGlobPathChars(split.path) &&
+				(await probeLiteralPathExists(split.path, cwd)) === "missing"
+			) {
 				throw new ToolError(`Line-range selector requires a single file, not a glob: ${entry}`);
 			}
-			clean = split.path;
-			ranges = parsed;
 		}
 		specs.push({
 			original: entry,
@@ -407,7 +429,16 @@ export class GrepTool implements AgentTool<typeof searchSchema, GrepToolDetails>
 			}
 			const scopedPaths = toPathList(rawPath);
 			const effectivePaths = scopedPaths.length > 0 ? scopedPaths : ["."];
-			const rawEntries = await expandDelimitedPathEntries(effectivePaths, this.session.cwd);
+			// Internal URLs resolve through the router, and a delimited list of them
+			// (`artifact://1;artifact://2`) reaches `splitDelimitedPathEntry` as one
+			// entry that it declines to split — the isInternalUrlPath guard below
+			// the predicate short-circuits first. `read` passes the same predicate
+			// for the same reason (read.ts:1596); without it a semicolon-joined
+			// artifact scope searched as one URI and silently missed the rest.
+			const internalRouter = InternalUrlRouter.instance();
+			const rawEntries = await expandDelimitedPathEntries(effectivePaths, this.session.cwd, {
+				routedUrlPredicate: entry => internalRouter.canResolve(entry),
+			});
 			const pathSpecs = await parsePathSpecs(rawEntries, this.session.cwd);
 			const resolveContext = sessionResolveContext(this.session, { signal });
 			// Internal URLs resolve inside the native search, bounded by the tier this call was approved at.
