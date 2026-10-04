@@ -13,6 +13,7 @@
  * observes, not on wiring.
  */
 import { afterEach, describe, expect, it, spyOn, vi } from "bun:test";
+import * as fsSync from "node:fs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -26,30 +27,27 @@ function fsError(code: string): NodeJS.ErrnoException {
 	return error;
 }
 
+/** Captured before any spy replaces it, so unaffected paths still read for real. */
+const fsRealReaddir = fs.readdir;
+
 /**
  * Fail only for `dir`, so the rest of the fixture tree still reads normally.
  * Mirrors a permission denial on one directory rather than a broken filesystem.
+ *
+ * Both accessors are spied because callers reach readdir as `fs.readdir` and as
+ * `fs.promises.readdir`.
  */
 function failReaddirFor(dir: string, code: string): void {
-	const original = fs.readdir;
-	spyOn(fs, "readdir").mockImplementation(((target: string, options?: unknown, callback?: unknown) => {
-		if (typeof target === "string" && path.resolve(target) === path.resolve(dir)) {
-			return Promise.reject(fsError(code));
-		}
-		// Forward both the promise and callback call shapes node:fs supports.
-		const asCallback = typeof options === "function" ? options : callback;
-		if (asCallback) {
-			return (original as (...args: unknown[]) => unknown)(
-				target,
-				options as never,
-				((err: unknown) => {
-					if (err) return;
-					void 0;
-				}) as never,
-			);
-		}
-		return (original as (...args: unknown[]) => Promise<unknown>)(target, options as never);
-	}) as never);
+	const wanted = path.resolve(dir);
+	const failing = () => Promise.reject(fsError(code));
+	spyOn(fs, "readdir").mockImplementation(((target: string, options?: unknown) =>
+		typeof target === "string" && path.resolve(target) === wanted
+			? failing()
+			: (fsRealReaddir as (...args: unknown[]) => Promise<unknown>)(target, options as never)) as never);
+	spyOn(fsSync.promises, "readdir").mockImplementation(((target: string, options?: unknown) =>
+		typeof target === "string" && path.resolve(target) === wanted
+			? failing()
+			: (fsRealReaddir as (...args: unknown[]) => Promise<unknown>)(target, options as never)) as never);
 }
 
 const tempDirs: string[] = [];
@@ -122,10 +120,13 @@ describe("Codex session store readdir failures", () => {
 
 describe("advisor transcript cost readdir failures", () => {
 	it("reports an unreadable session directory through the warn channel", async () => {
-		const dir = await tempDir("advisor-costs");
+		// The advisor scans the session file's path minus its `.jsonl` suffix,
+		// which is where `<session>/__advisor.jsonl` transcripts live.
+		const dir = path.join(await tempDir("advisor-costs"), "sess");
+		await fs.mkdir(dir, { recursive: true });
 		const sessionFile = path.join(dir, "session.jsonl");
 		await Bun.write(sessionFile, '{"type":"session"}\n');
-		failReaddirFor(dir, "EACCES");
+		failReaddirFor(sessionFile.slice(0, -".jsonl".length), "EACCES");
 
 		const warnings: string[] = [];
 		const costs = await loadAdvisorTranscriptCosts(sessionFile, { warn: m => warnings.push(m) });
