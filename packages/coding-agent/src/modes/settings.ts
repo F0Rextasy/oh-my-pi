@@ -292,6 +292,7 @@ const STATUS_LINE_SEGMENT_LABELS: Record<
 > = {
 	pi: { label: "Agent", description: "omp brand glyph with working spinner and turn timer" },
 	status: { label: "Extension statuses", description: "Status text set by extensions and hooks" },
+	thinking: { label: "Thinking level", description: "Reasoning effort for the served model" },
 	model: { label: "Model", description: "Model name and thinking level" },
 	mode: { label: "Mode", description: "Plan, vibe, goal, loop, prewalk and codex-reset state" },
 	path: { label: "Path", description: "Working directory, shortened to fit" },

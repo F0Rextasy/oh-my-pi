@@ -3,6 +3,7 @@ export const STATUS_LINE_SEGMENT_IDS = [
 	"pi",
 	"status",
 	"model",
+	"thinking",
 	"mode",
 	"path",
 	"git",
