@@ -1663,13 +1663,8 @@ export function buildMiseUpdateEnv(
 }
 
 /**
- * Environment for the Homebrew update path.
- *
- * `brew update` can stop to answer a prompt before it touches anything, and
- * `omp update` inherits the TTY it was launched from — so that prompt is
- * interactive and the command never returns. `NONINTERACTIVE` is Homebrew's own
- * opt-out for that. The sibling mise path builds an env for the same reason
- * (`buildMiseUpdateEnv`); Homebrew was the one branch that did not.
+ * `omp update` inherits the TTY it was launched from, so a Homebrew prompt
+ * blocks the update indefinitely. `NONINTERACTIVE` is Homebrew's opt-out.
  */
 export function buildHomebrewUpdateEnv(
 	base: Record<string, string | undefined> = process.env,
