@@ -2452,7 +2452,12 @@ export class StatusLineComponent<TSession extends StatusLineSession = StatusLine
 		let leftSegments = presetDef.leftSegments;
 		let rightSegments = presetDef.rightSegments;
 		if (useCustomSegments) {
-			const merged = this.#settings.segments ?? this.#settings.leftSegments;
+			// Only the merged list is re-split. Falling back to `leftSegments`
+			// here and filtering it would overwrite `rightSegments` with the
+			// right-hand subset of the left list — empty — so a caller that
+			// configured the two halves separately would silently lose the
+			// whole right side of the bar.
+			const merged = this.#settings.segments;
 			if (merged) {
 				leftSegments = merged.filter(segment => !END_OF_BAR_SEGMENTS.has(segment));
 				rightSegments = merged.filter(segment => END_OF_BAR_SEGMENTS.has(segment));
