@@ -17,6 +17,7 @@ function buildArgs(extra: Partial<Args>, sessionDir?: string): Args {
 		sessionDir,
 		messages: [],
 		fileArgs: [],
+		invalidFlagValues: [],
 		unknownFlags: new Map(),
 		unrecognizedFlags: [],
 		...extra,
