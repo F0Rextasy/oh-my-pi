@@ -135,9 +135,8 @@ import { cfgDefaultThinkingLevel, cfgRetryFallbackChains } from "../../session/s
 import {
 	cfgStatusLineCompactThinkingLevel,
 	cfgStatusLineContextLine,
-	cfgStatusLineLeftSegments,
+	cfgStatusLineSegments,
 	cfgStatusLinePreset,
-	cfgStatusLineRightSegments,
 	cfgStatusLineSegmentOptions,
 	cfgStatusLineSeparator,
 	cfgStatusLineSessionAccent,
@@ -297,8 +296,7 @@ export class SelectorController {
 						// Update status line with preview settings
 						this.ctx.statusLine.updateSettings({
 							preset: cfgStatusLinePreset.get(settings),
-							leftSegments: cfgStatusLineLeftSegments.get(settings),
-							rightSegments: cfgStatusLineRightSegments.get(settings),
+							segments: cfgStatusLineSegments.get(settings),
 							separator: cfgStatusLineSeparator.get(settings),
 							showHookStatus: cfgStatusLineShowHookStatus.get(settings),
 							sessionAccent: cfgStatusLineSessionAccent.get(settings),
@@ -330,8 +328,7 @@ export class SelectorController {
 						// Restore status line to saved settings
 						this.ctx.statusLine.updateSettings({
 							preset: cfgStatusLinePreset.get(settings),
-							leftSegments: cfgStatusLineLeftSegments.get(settings),
-							rightSegments: cfgStatusLineRightSegments.get(settings),
+							segments: cfgStatusLineSegments.get(settings),
 							separator: cfgStatusLineSeparator.get(settings),
 							showHookStatus: cfgStatusLineShowHookStatus.get(settings),
 							sessionAccent: cfgStatusLineSessionAccent.get(settings),
@@ -626,10 +623,12 @@ export class SelectorController {
 	 * which the two panels ever agreed.
 	 */
 	handleSettingChange(id: string, value: unknown): void {
-		if (
-			(id === cfgStatusLineLeftSegments.id || id === cfgStatusLineRightSegments.id) &&
-			cfgStatusLinePreset.get(this.ctx.settings) !== "custom"
-		) {
+		// `statusLine.segments` is the row the settings overlay actually writes:
+		// the two half-lists are hidden and only feed the renderer. Guarding the
+		// old ids left this branch unreachable, so a segment edit on any preset
+		// other than `custom` was stored and then ignored — the exact silent
+		// discard this exists to prevent.
+		if (id === cfgStatusLineSegments.id && cfgStatusLinePreset.get(this.ctx.settings) !== "custom") {
 			cfgStatusLinePreset.set(this.ctx.settings, "custom");
 			// The bar has to re-read the preset, and the selector has to redraw the
 			// row that now reads `Custom` rather than the preset the user was on.

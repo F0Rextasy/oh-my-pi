@@ -1,11 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "bun:test";
 import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import { SelectorController } from "@oh-my-pi/pi-coding-agent/modes/controllers/selector-controller";
-import {
-	cfgStatusLineLeftSegments,
-	cfgStatusLinePreset,
-	cfgStatusLineRightSegments,
-} from "@oh-my-pi/pi-coding-agent/modes/settings";
+import { cfgStatusLinePreset, cfgStatusLineSegments } from "@oh-my-pi/pi-coding-agent/modes/settings";
 import { initTheme } from "@oh-my-pi/pi-tui/theme";
 import type { InteractiveModeContext } from "@oh-my-pi/pi-coding-agent/modes/types";
 import { beginSettingsTest, restoreSettingsTestState, type SettingsTestState } from "./helpers/settings-test-state";
@@ -48,16 +44,16 @@ describe("status line segment editing", () => {
 		cfgStatusLinePreset.set(settings, "default");
 		const { controller } = createController();
 
-		controller.handleSettingChange(cfgStatusLineLeftSegments.id, ["model", "path"]);
+		controller.handleSettingChange(cfgStatusLineSegments.id, ["model", "path"]);
 
 		expect(cfgStatusLinePreset.get(settings)).toBe("custom");
 	});
 
-	it("switches for a right-side segment edit too", () => {
+	it("switches on a second edit once already custom", () => {
 		cfgStatusLinePreset.set(settings, "minimal");
 		const { controller } = createController();
 
-		controller.handleSettingChange(cfgStatusLineRightSegments.id, ["session_name"]);
+		controller.handleSettingChange(cfgStatusLineSegments.id, ["session_name"]);
 
 		expect(cfgStatusLinePreset.get(settings)).toBe("custom");
 	});
@@ -68,7 +64,7 @@ describe("status line segment editing", () => {
 		cfgStatusLinePreset.set(settings, "custom");
 		const { controller, invalidate } = createController();
 
-		controller.handleSettingChange(cfgStatusLineLeftSegments.id, ["model"]);
+		controller.handleSettingChange(cfgStatusLineSegments.id, ["model"]);
 
 		expect(cfgStatusLinePreset.get(settings)).toBe("custom");
 		expect(invalidate()).toBe(0);
@@ -80,7 +76,7 @@ describe("status line segment editing", () => {
 		cfgStatusLinePreset.set(settings, "default");
 		const { controller, invalidate } = createController();
 
-		controller.handleSettingChange(cfgStatusLineLeftSegments.id, ["model"]);
+		controller.handleSettingChange(cfgStatusLineSegments.id, ["model"]);
 
 		expect(invalidate()).toBeGreaterThan(0);
 	});
