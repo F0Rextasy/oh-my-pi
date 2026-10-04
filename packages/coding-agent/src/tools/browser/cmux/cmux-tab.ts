@@ -1106,12 +1106,14 @@ export class CmuxTab implements InProcessRunTab {
 		const savedBuffer = saveFullRes ? buffer : Buffer.from(resized.buffer);
 		const savedMimeType = saveFullRes ? captureMime : resized.mimeType;
 		const ext = savedMimeType === "image/webp" ? "webp" : savedMimeType === "image/jpeg" ? "jpg" : "png";
-		const dest = context.session.browserScreenshotDir
-			? path.join(
-					context.session.browserScreenshotDir,
-					`screenshot-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, -1)}.${ext}`,
-				)
-			: path.join(os.tmpdir(), `omp-sshots-${Snowflake.next()}.${ext}`);
+		const dest = opts.path
+			? resolveToCwd(opts.path, context.session.cwd)
+			: context.session.browserScreenshotDir
+				? path.join(
+						context.session.browserScreenshotDir,
+						`screenshot-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, -1)}.${ext}`,
+					)
+				: path.join(os.tmpdir(), `omp-sshots-${Snowflake.next()}.${ext}`);
 		await fs.promises.mkdir(path.dirname(dest), { recursive: true });
 		await Bun.write(dest, savedBuffer);
 		const info: ScreenshotResult = {
