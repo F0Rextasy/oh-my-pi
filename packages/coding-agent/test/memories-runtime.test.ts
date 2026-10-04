@@ -447,11 +447,12 @@ describe("memories runtime", () => {
 		} as any);
 
 		const memoryRoot = getMemoryRoot(fx.agentDir, fx.session.sessionManager.getCwd());
-		// A populated subtree that pruning would otherwise delete as "empty".
-		const doomed = path.join(memoryRoot, "skills", "stale-skill");
-		await fs.mkdir(path.join(doomed, "templates"), { recursive: true });
-		await fs.writeFile(path.join(doomed, "SKILL.md"), "# Stale\nReal content.");
-		await fs.writeFile(path.join(doomed, "templates", "old.md"), "stale template");
+		// A populated subtree inside a skill consolidation KEEPS, so the top-level
+		// prune leaves it alone and only pruneEmptyDirectories could remove it.
+		const kept = path.join(memoryRoot, "skills", "kept");
+		await fs.mkdir(path.join(kept, "templates"), { recursive: true });
+		await fs.writeFile(path.join(kept, "templates", "old.md"), "stale template");
+		const doomed = path.join(kept, "templates");
 
 		// Enforce phase2 with a stage1 output already present.
 		const db = memoryStorage.openMemoryDb(getAgentDbPath(fx.agentDir));
@@ -496,8 +497,7 @@ describe("memories runtime", () => {
 		await settle(fx.whenSettled, "phase2 prune after failed read");
 
 		// A failed read must never authorise a recursive delete.
-		expect(await Bun.file(path.join(doomed, "SKILL.md")).exists()).toBe(true);
-		expect(await Bun.file(path.join(doomed, "templates", "old.md")).exists()).toBe(true);
+		expect(await Bun.file(path.join(doomed, "old.md")).exists()).toBe(true);
 		// And the failure must reach the user, not just the log file.
 		expect(notice.mock.calls.some(call => String(call[1]).includes("Could not read directory"))).toBe(true);
 	});
