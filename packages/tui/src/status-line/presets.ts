@@ -102,6 +102,25 @@ export const STATUS_LINE_PRESETS: Record<StatusLinePreset, PresetDef> = {
 	},
 };
 
+/**
+ * Segments every built-in preset places on the right-hand end of the bar.
+ *
+ * The bar is one line, not two, so the editor exposes it as one list; this is
+ * how that list decides which end a segment belongs to. Derived from the presets
+ * rather than hand-written, so a new preset that keeps the same convention moves
+ * the boundary with it. Segments a preset puts on either side — `mode`,
+ * `context_pct`, `cost` — are not in here and take the left.
+ */
+export const END_OF_BAR_SEGMENTS: ReadonlySet<string> = (() => {
+	const left = new Set<string>();
+	const right = new Set<string>();
+	for (const preset of Object.values(STATUS_LINE_PRESETS)) {
+		for (const segment of preset.leftSegments) left.add(segment);
+		for (const segment of preset.rightSegments) right.add(segment);
+	}
+	return new Set([...right].filter(segment => !left.has(segment)));
+})();
+
 export function getPreset(name: StatusLinePreset): PresetDef {
 	return STATUS_LINE_PRESETS[name] ?? STATUS_LINE_PRESETS.default;
 }

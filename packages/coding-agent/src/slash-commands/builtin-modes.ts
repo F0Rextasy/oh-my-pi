@@ -44,6 +44,31 @@ import { formatSlowModeResetClock } from "../session/anthropic-slow-mode";
 import { cfgExtendedContext } from "../session/context-settings";
 import { cfgGoalEnabled } from "../goals/settings";
 import { cfgPlanEnabled } from "../plan-mode/settings";
+import {
+	cfgStatusLineLeftSegments,
+	cfgStatusLinePreset,
+	cfgStatusLineRightSegments,
+	cfgStatusLineSegmentOptions,
+} from "../modes/settings";
+
+/**
+ * `/statusline reset` — put the bar back to omp's shipped configuration.
+ *
+ * Only the segment choices are touched. Clearing them is what "reset" has to
+ * mean: the preset's own lists are the fallback, so restoring the default
+ * preset alone would leave a customised `custom` layout in place. Each is
+ * removed through `unset` rather than written as a null, which keeps
+ * `config.yml` clean. Returns whether the argument was the reset verb, so the
+ * caller can tell "reset done" from "not a command".
+ */
+function resetStatusLineCommand(args: string, settings: Settings): boolean {
+	if (args.trim().toLowerCase() !== "reset") return false;
+	cfgStatusLinePreset.set(settings, "default");
+	cfgStatusLineLeftSegments.unset(settings);
+	cfgStatusLineRightSegments.unset(settings);
+	cfgStatusLineSegmentOptions.unset(settings);
+	return true;
+}
 
 export function refreshStatusLine(ctx: InteractiveModeContext): void {
 	ctx.statusLine.invalidate();
@@ -302,6 +327,35 @@ export const BUILTIN_MODE_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpec> = [
 		handleTui: (_command, runtime) => {
 			runtime.ctx.showSettingsSelector();
 			clearSubmittedText(runtime);
+		},
+	},
+	{
+		name: "statusline",
+		icon: "settings",
+		description: "Choose which segments the status line shows, or reset it",
+		acpDescription: "Choose status line segments",
+		acpInputHint: "[reset]",
+		allowArgs: true,
+		subcommands: [{ name: "reset", description: "Restore omp's default bar" }],
+		getTuiAutocompleteDescription: runtime =>
+			`Segments: ${cfgStatusLineLeftSegments.get(runtime.ctx.settings).length} left, ` +
+			`${cfgStatusLineRightSegments.get(runtime.ctx.settings).length} right`,
+		handle: (command, runtime) => {
+			if (!resetStatusLineCommand(command.args, runtime.settings)) {
+				return usage("Usage: /statusline [reset]", runtime);
+			}
+			return commandConsumed();
+		},
+		handleTui: (command, runtime) => {
+			clearSubmittedText(runtime);
+			if (resetStatusLineCommand(command.args, runtime.ctx.settings)) {
+				refreshStatusLine(runtime.ctx);
+				runtime.ctx.showStatus("Status line restored to omp's defaults.");
+				return;
+			}
+			// Land on Left Segments directly: `/settings` opens on the first tab's
+			// first row, which is nowhere near the segment chooser.
+			runtime.ctx.showSettingsSelector("statusLine.leftSegments");
 		},
 	},
 	{

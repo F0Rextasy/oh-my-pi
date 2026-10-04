@@ -577,6 +577,11 @@ export interface SettingsRuntimeContext {
 	requestRender?: () => void;
 	/** Live status renderer for composer-shape previews (the session's status line). */
 	composerPreviewStatus?: ComposerPreviewStatusSource;
+	/**
+	 * Setting path to pre-select on open, so a deep link (`/statusline`) lands
+	 * on the row the caller meant instead of the first item of the first tab.
+	 */
+	focusPath?: string;
 }
 
 /** Status line settings subset for preview */
@@ -621,6 +626,10 @@ export class SettingsSelectorComponent implements Component {
 	readonly #changedCounts = new Map<SettingTab, number>();
 	#currentList: SettingsList | null = null;
 	#searchList: SettingsList | null = null;
+	/** A deep link waiting for the first frame, before the list has items. */
+	#pendingFocus: string | undefined;
+	/** Frames spent retrying a deep link that has not landed yet. */
+	#pendingFocusAttempts: number | undefined;
 	#pluginComponent: PluginSettingsComponent | null = null;
 	#currentTabId: SettingTab | "plugins" = "appearance";
 	#preSearchTabId: SettingTab | "plugins" = "appearance";
@@ -665,6 +674,41 @@ export class SettingsSelectorComponent implements Component {
 
 		// Initialize with first tab
 		this.#switchToTab("appearance");
+		// A deep link is applied on the first frame, not here: `selectItem` looks
+		// in the list's already-filtered items, which is still empty until the
+		// list has rendered. Selecting during construction returned `false` and
+		// was discarded, so `/statusline` quietly opened the top row instead of
+		// the segment chooser.
+		this.#pendingFocus = context.focusPath;
+	}
+
+	/**
+	 * Apply a queued deep link, once the list has items to match against.
+	 *
+	 * The link is retried rather than applied once. Two things have to be true
+	 * before `selectItem` can succeed — the list must exist, and it must already
+	 * hold its rows — and neither holds on the first frame. Applying eagerly
+	 * discarded the link silently every time, so `/statusline` opened the tab's
+	 * first row instead of the segment chooser with nothing on screen to explain
+	 * it. The retry is bounded: a path that does not resolve is given up on
+	 * rather than left to fight the user's own cursor forever.
+	 */
+	#applyPendingFocus(): void {
+		const path = this.#pendingFocus;
+		if (path === undefined) return;
+		// A search owns the view now; the link no longer describes what is on
+		// screen, so drop it rather than surprising the user later.
+		if (this.#searchList) {
+			this.#pendingFocus = undefined;
+			return;
+		}
+		if (!this.#currentList) return;
+		if (this.#currentList.selectItem(path)) {
+			this.#pendingFocus = undefined;
+			return;
+		}
+		this.#pendingFocusAttempts = (this.#pendingFocusAttempts ?? 0) + 1;
+		if (this.#pendingFocusAttempts > 4) this.#pendingFocus = undefined;
 	}
 
 	invalidate(): void {
@@ -730,6 +774,7 @@ export class SettingsSelectorComponent implements Component {
 	 * then a footer hint pinned above the bottom border.
 	 */
 	render(width: number): readonly string[] {
+		this.#applyPendingFocus();
 		const height = Math.max(14, process.stdout.rows || 40);
 		const innerWidth = Math.max(1, width - 4);
 
@@ -1605,6 +1650,20 @@ export class SettingsSelectorComponent implements Component {
 					contextLine: this.#context.settings.get("statusLine.contextLine") as ContextLineMode,
 				});
 			};
+		} else if (def.path === "statusLine.leftSegments" || def.path === "statusLine.rightSegments") {
+			// The segment lists are the most-edited part of the status line, and
+			// picking them with no feedback means composing the bar blind. Both
+			// lists go out together because the bar draws them as one row.
+			const emitSegments = (): void => {
+				this.#callbacks.onStatusLinePreview?.({
+					preset: this.#context.settings.get("statusLine.preset") as StatusLinePreset,
+					leftSegments: this.#context.settings.get("statusLine.leftSegments") as StatusLineSegmentId[],
+					rightSegments: this.#context.settings.get("statusLine.rightSegments") as StatusLineSegmentId[],
+					separator: this.#context.settings.get("statusLine.separator") as StatusLineSeparatorStyle,
+				});
+			};
+			onPreview = emitSegments;
+			onPreviewCancel = emitSegments;
 		} else if (def.path === "snapcompact.shape") {
 			const shapePreview = new SnapcompactShapePreview(currentValue, {
 				model: this.#context.model,

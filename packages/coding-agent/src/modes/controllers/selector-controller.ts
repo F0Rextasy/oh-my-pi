@@ -257,7 +257,7 @@ export class SelectorController {
 		this.ctx.ui.requestRender();
 	}
 
-	showSettingsSelector(): void {
+	showSettingsSelector(focusPath?: string): void {
 		getAvailableThemes().then(availableThemes => {
 			// Fullscreen settings editor on the alternate screen: the overlay
 			// enables mouse tracking (click/hover/wheel) for its lifetime and
@@ -280,6 +280,7 @@ export class SelectorController {
 					model: this.ctx.session.model,
 					imageBudget: this.ctx.ui.imageBudget,
 					requestRender: () => this.ctx.ui.requestRender(),
+					focusPath,
 					composerPreviewStatus: this.ctx.statusLine,
 				},
 				{
@@ -614,8 +615,28 @@ export class SelectorController {
 	 * Only `defaultThinkingLevel` needs this: it also switches the live session,
 	 * which config reloads and parent-session writes must not do. Every other
 	 * setting applies through handle listeners owned by the session and InteractiveMode.
+	 *
+	 * Editing a segment list is the second case. The bar resolves its segments
+	 * from the preset unless the preset is `custom` (`#computeEffectiveSettings`),
+	 * so a segment ticked while the preset is `minimal` or `default` is written
+	 * and then ignored — while the live preview shows it working, because preview
+	 * settings override the preset. The user watches the bar change, commits, and
+	 * finds it exactly as it was. Switching to `custom` on the first segment edit
+	 * makes the edit mean what it appeared to mean, and is the only reading under
+	 * which the two panels ever agreed.
 	 */
 	handleSettingChange(id: string, value: unknown): void {
+		if (
+			(id === cfgStatusLineLeftSegments.id || id === cfgStatusLineRightSegments.id) &&
+			cfgStatusLinePreset.get(this.ctx.settings) !== "custom"
+		) {
+			cfgStatusLinePreset.set(this.ctx.settings, "custom");
+			// The bar has to re-read the preset, and the selector has to redraw the
+			// row that now reads `Custom` rather than the preset the user was on.
+			this.ctx.statusLine.invalidate();
+			this.ctx.ui.invalidate();
+			return;
+		}
 		if (id !== cfgDefaultThinkingLevel.id || typeof value !== "string") return;
 		const level = parseConfiguredThinkingLevel(value);
 		if (level === undefined || level === this.ctx.session.configuredThinkingLevel()) return;

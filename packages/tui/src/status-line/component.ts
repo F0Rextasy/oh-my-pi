@@ -37,7 +37,7 @@ import {
 } from "../overlays/codex-reset-fireworks";
 import { canReuseCachedPr, createPrCacheContext, isSamePrCacheContext, type PrCacheContext } from "./git-utils";
 import { summarizeUsageResetCredits } from "../overlays/usage-display";
-import { getPreset } from "./presets";
+import { END_OF_BAR_SEGMENTS, getPreset } from "./presets";
 import { describeSegment, renderSegment, type SegmentContext } from "./segments";
 import type { TspMeterMark, TspProps } from "@oh-my-pi/pi-wire";
 import type { NativeNode, NativeUiEvent } from "../native/node";
@@ -2444,12 +2444,23 @@ export class StatusLineComponent<TSession extends StatusLineSession = StatusLine
 			};
 		}
 
-		const leftSegments = useCustomSegments
-			? (this.#settings.leftSegments ?? presetDef.leftSegments)
-			: presetDef.leftSegments;
-		const rightSegments = useCustomSegments
-			? (this.#settings.rightSegments ?? presetDef.rightSegments)
-			: presetDef.rightSegments;
+		// The editor exposes the bar as one list, because it is one line. It is
+		// split back into its two drawn groups here using the segments every
+		// built-in preset places at the right end, so `session_name` and the token
+		// counters land where they always did without the user choosing a side.
+		// Presets keep their own explicit split; only `custom` goes through this.
+		let leftSegments = presetDef.leftSegments;
+		let rightSegments = presetDef.rightSegments;
+		if (useCustomSegments) {
+			const merged = this.#settings.segments ?? this.#settings.leftSegments;
+			if (merged) {
+				leftSegments = merged.filter(segment => !END_OF_BAR_SEGMENTS.has(segment));
+				rightSegments = merged.filter(segment => END_OF_BAR_SEGMENTS.has(segment));
+			} else {
+				leftSegments = this.#settings.leftSegments ?? presetDef.leftSegments;
+				rightSegments = this.#settings.rightSegments ?? presetDef.rightSegments;
+			}
+		}
 
 		return {
 			...this.#settings,
