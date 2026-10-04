@@ -46,6 +46,7 @@ import { cfgGoalEnabled } from "../goals/settings";
 import { cfgPlanEnabled } from "../plan-mode/settings";
 import {
 	cfgStatusLineLeftSegments,
+	cfgStatusLineSegments,
 	cfgStatusLinePreset,
 	cfgStatusLineRightSegments,
 	cfgStatusLineSegmentOptions,
@@ -64,6 +65,10 @@ import {
 function resetStatusLineCommand(args: string, settings: Settings): boolean {
 	if (args.trim().toLowerCase() !== "reset") return false;
 	cfgStatusLinePreset.set(settings, "default");
+	// The merged list too. Leaving it behind made reset mean "ignore what I
+	// saved" rather than "forget it": the next segment edit flipped the preset
+	// back to `custom` and resurrected a list the user had already discarded.
+	cfgStatusLineSegments.unset(settings);
 	cfgStatusLineLeftSegments.unset(settings);
 	cfgStatusLineRightSegments.unset(settings);
 	cfgStatusLineSegmentOptions.unset(settings);
@@ -338,8 +343,8 @@ export const BUILTIN_MODE_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpec> = [
 		allowArgs: true,
 		subcommands: [{ name: "reset", description: "Restore omp's default bar" }],
 		getTuiAutocompleteDescription: runtime =>
-			`Segments: ${cfgStatusLineLeftSegments.get(runtime.ctx.settings).length} left, ` +
-			`${cfgStatusLineRightSegments.get(runtime.ctx.settings).length} right`,
+			`Center bar: ${cfgStatusLineSegments.get(runtime.ctx.settings).length} segments ` +
+			`(preset: ${cfgStatusLinePreset.get(runtime.ctx.settings)})`,
 		handle: (command, runtime) => {
 			if (!resetStatusLineCommand(command.args, runtime.settings)) {
 				return usage("Usage: /statusline [reset]", runtime);

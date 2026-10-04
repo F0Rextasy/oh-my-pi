@@ -1274,10 +1274,34 @@ const usageSegment: StatusLineSegment = {
 // Segment Registry
 // ═══════════════════════════════════════════════════════════════════════════
 
+/**
+ * The thinking-effort level as its own segment.
+ *
+ * It used to be reachable only through the model segment's
+ * `showThinkingLevel` option, which put it behind the model's own settings and
+ * made it impossible to place anywhere else in the bar. Split out, it can sit
+ * where it reads best and be turned on without touching the model row.
+ */
+const thinkingSegment: StatusLineSegment = {
+	id: "thinking",
+	render(ctx) {
+		const display = modelThinkingDisplay(ctx);
+		if (!display) return { content: "", visible: false };
+		// Same colour family as the model so the two read as one idea, and the
+		// level's own glyph leads so a wide model name cannot bury it.
+		return { content: theme.fg("statusLineModel", display), visible: true };
+	},
+	describe(ctx) {
+		const display = modelThinkingDisplay(ctx);
+		return display ? segView([span(display, "statusLineModel")]) : null;
+	},
+};
+
 export const SEGMENTS: Record<StatusLineSegmentId, StatusLineSegment> = {
 	pi: piSegment,
 	status: statusSegment,
 	model: modelSegment,
+	thinking: thinkingSegment,
 	mode: modeSegment,
 	path: pathSegment,
 	git: gitSegment,
