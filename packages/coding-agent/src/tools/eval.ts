@@ -158,18 +158,7 @@ interface FormattedDisplayJson {
 }
 
 /**
- * Generated output notices as they appear inside a serialised `display()` value.
- *
- * `formatOutputNotice` appends a bracketed hint to the *end* of a string field —
- * for a size-limited read that is `[Showing lines 1-488 of 921 … Use :489 to
- * continue]`, the only thing telling the model how to reach the rest of the
- * file. A head-only truncation of the serialised value always drops it.
- *
- * Matched against the serialised form rather than reusing
- * {@link stripGeneratedOutputNotice}, because by this point the line separator
- * is the two-character escape `\n`, so the line-based predicate there cannot
- * see it. The prefixes mirror `isGeneratedOutputNoticeLine`, so the two agree
- * on what counts as a notice.
+ * Matches the serialised form because the separator is the escape `\n`, not a newline, so the line-based helper cannot see it.
  */
 const SERIALIZED_OUTPUT_NOTICE =
 	/\[(?:Showing |Some lines truncated to |\d+ matches limit reached\. Use limit=\d+ for more|\d+ results limit reached)[^\]\\]*\]/g;
@@ -198,9 +187,7 @@ function formatDisplayJson(value: unknown, canSpill: boolean): FormattedDisplayJ
 		return { fullText, previewText: fullText, detailsValue: value, spillFullValue: false };
 	}
 
-	// Re-attach any generated notice the head cut, so a size-limited read keeps
-	// telling the model how to reach the rest of the file. Their bytes are
-	// reserved from the budget first, so the preview stays inside the cap.
+	// The notice is a tail line of one field, so head truncation drops it.
 	const allNotices = collectSerializedNotices(fullText);
 	const kept = collectSerializedNotices(
 		truncateHeadBytes(fullText, MAX_DISPLAY_TEXT_BYTES - DISPLAY_ELISION_RESERVE_BYTES).text,
