@@ -12,6 +12,7 @@ import {
 	cfgStatusLineCompactThinkingLevel,
 	cfgStatusLineContextLine,
 	cfgStatusLineLeftSegments,
+	cfgStatusLineSegments,
 	cfgStatusLinePreset,
 	cfgStatusLineRightSegments,
 	cfgStatusLineSegmentOptions,
@@ -35,6 +36,10 @@ export type StatusLineHostSession = StatusLineSession &
 export const statusLineHost: StatusLineHost<StatusLineHostSession> = {
 	getSettings: () => ({
 		preset: cfgStatusLinePreset.get(settings),
+		// The list the settings overlay writes. This host is what the live bar
+		// reads every frame; without the merged list here the user's edits only
+		// ever reached the preview.
+		segments: cfgStatusLineSegments.get(settings),
 		leftSegments: cfgStatusLineLeftSegments.get(settings),
 		rightSegments: cfgStatusLineRightSegments.get(settings),
 		separator: cfgStatusLineSeparator.get(settings),

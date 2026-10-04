@@ -348,6 +348,7 @@ import {
 	cfgStatusLineCompactThinkingLevel,
 	cfgStatusLineContextLine,
 	cfgStatusLineLeftSegments,
+	cfgStatusLineSegments,
 	cfgStatusLinePreset,
 	cfgStatusLineRightSegments,
 	cfgStatusLineSegmentOptions,
@@ -3567,6 +3568,10 @@ export class InteractiveMode implements InteractiveModeContext {
 	#syncStatusLineSettings(): void {
 		this.statusLine.updateSettings({
 			preset: cfgStatusLinePreset.get(settings),
+			// The list the user actually edits. Without it the live bar kept
+			// reading the preset's own halves, so every segment edit was applied to
+			// the preview and dropped again on the real bar.
+			segments: cfgStatusLineSegments.get(settings),
 			leftSegments: cfgStatusLineLeftSegments.get(settings),
 			rightSegments: cfgStatusLineRightSegments.get(settings),
 			separator: cfgStatusLineSeparator.get(settings),
