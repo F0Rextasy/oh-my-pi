@@ -49,6 +49,7 @@
 - Fixed long `/btw` answers in Tern being clipped with no way to scroll: `/btw` now answers in the scrollable BTW history sheet ([#14331](https://github.com/can1357/oh-my-pi/pull/14331) by [@H4vC](https://github.com/H4vC))
 - Fixed `/btw` answers longer than 4 KiB being cut off with `[…truncated]` once they finished ([#14331](https://github.com/can1357/oh-my-pi/pull/14331) by [@H4vC](https://github.com/H4vC))
 - In Tern, Esc puts the BTW history sheet away while an answer keeps streaming (`/btw` reopens it); `x` cancels the answer ([#14331](https://github.com/can1357/oh-my-pi/pull/14331) by [@H4vC](https://github.com/H4vC))
+- Fixed `omp update` hanging with no output on Homebrew installs: the brew path spawned `brew update` and `brew upgrade` with the inherited environment and TTY, so a prompt from Homebrew blocked the update indefinitely. Both calls now run with `NONINTERACTIVE` set, matching the environment the mise path already used ([#12489](https://github.com/can1357/oh-my-pi/issues/12489)).
 
 ## [18.6.0] - 2026-10-03
 

@@ -1662,6 +1662,21 @@ export function buildMiseUpdateEnv(
 	return { ...base, MISE_MINIMUM_RELEASE_AGE: "0s" };
 }
 
+/**
+ * Environment for the Homebrew update path.
+ *
+ * `brew update` can stop to answer a prompt before it touches anything, and
+ * `omp update` inherits the TTY it was launched from — so that prompt is
+ * interactive and the command never returns. `NONINTERACTIVE` is Homebrew's own
+ * opt-out for that. The sibling mise path builds an env for the same reason
+ * (`buildMiseUpdateEnv`); Homebrew was the one branch that did not.
+ */
+export function buildHomebrewUpdateEnv(
+	base: Record<string, string | undefined> = process.env,
+): Record<string, string | undefined> {
+	return { ...base, HOMEBREW_NO_ENV_HINTS: "1", NONINTERACTIVE: "1" };
+}
+
 export function buildMiseForceInstallArgs(expectedVersion: string): string[] {
 	return ["install", "--force", `${MISE_TOOL}@${expectedVersion}`];
 }
@@ -1924,15 +1939,20 @@ export async function updateViaManager(
 }
 
 async function updateViaHomebrew(expectedVersion: string, force: boolean): Promise<void> {
+	const env = buildHomebrewUpdateEnv();
 	console.log(chalk.dim("Updating Homebrew formulae..."));
-	const update = await $`brew update`.nothrow();
+	// `NONINTERACTIVE` (set by buildHomebrewUpdateEnv) is Homebrew's own opt-out
+	// for prompting. Bun's `$` exposes stdin as a getter rather than a chainable
+	// option, so there is no per-command stdin to close here — the env is the
+	// supported lever, and it is the one the mise sibling already uses.
+	const update = await $`brew update`.env(env).nothrow();
 	if (update.exitCode !== 0) {
 		throw new Error(`brew update failed with exit code ${update.exitCode}`);
 	}
 
 	console.log(chalk.dim("Updating via Homebrew..."));
 	const args = buildHomebrewUpdateArgs(force);
-	const result = await $`brew ${args}`.nothrow();
+	const result = await $`brew ${args}`.env(env).nothrow();
 	if (result.exitCode !== 0) {
 		throw new Error(`brew ${args[0]} failed with exit code ${result.exitCode}`);
 	}

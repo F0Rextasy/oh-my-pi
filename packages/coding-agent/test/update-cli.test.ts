@@ -8,6 +8,7 @@ import * as updateCli from "@oh-my-pi/pi-coding-agent/cli/update-cli";
 import {
 	buildBunInstallArgs,
 	buildHomebrewUpdateArgs,
+	buildHomebrewUpdateEnv,
 	buildMiseForceInstallArgs,
 	buildMiseUpdateEnv,
 	buildMiseUpgradeArgs,
@@ -580,6 +581,20 @@ describe("update-cli package manager commands", () => {
 	it("targets the Homebrew tap formula and switches to reinstall for forced updates", () => {
 		expect(buildHomebrewUpdateArgs(false)).toEqual(["upgrade", "can1357/tap/omp"]);
 		expect(buildHomebrewUpdateArgs(true)).toEqual(["reinstall", "can1357/tap/omp"]);
+	});
+
+	it("runs the Homebrew path unattended so a prompt cannot block the update", () => {
+		// `omp update` inherits the TTY, and `brew` may stop to ask before it
+		// touches anything. The sibling mise path already builds an env for this;
+		// Homebrew did not, so the update hung with no output.
+		expect(buildHomebrewUpdateEnv({ PATH: "/bin" })).toEqual({
+			PATH: "/bin",
+			HOMEBREW_NO_ENV_HINTS: "1",
+			NONINTERACTIVE: "1",
+		});
+		// Overrides a value the caller set deliberately — the point is that the
+		// command cannot end up interactive.
+		expect(buildHomebrewUpdateEnv({ HOMEBREW_NO_ENV_HINTS: "0" }).HOMEBREW_NO_ENV_HINTS).toBe("1");
 	});
 
 	it("targets the mise GitHub backend and overrides release-age settings for attended updates", () => {
