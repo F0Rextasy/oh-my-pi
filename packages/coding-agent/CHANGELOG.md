@@ -25,6 +25,13 @@
 - Fixed a mermaid `xychart` whose axis range is finer than floating-point precision freezing the terminal ([#14454](https://github.com/can1357/oh-my-pi/pull/14454) by [@H4vC](https://github.com/H4vC))
 - Fixed resuming a session whose saved model cannot be restored silently sending its transcript to another model. At startup, `--continue`/`--resume` in print, JSON, RPC, and `rpc-ui` modes (and in the TUI with `retry.modelFallback: false`) now exits with an error naming the model instead of using the settings-default or first available model. At runtime, RPC `open_session` and `switch_session`, ACP session load and fork, and extension session switches fail with `Could not restore model <provider/id>` and keep the current session instead of continuing on the current model; TUI `/resume` warns `Could not restore model <provider/id>. Using <provider/id>`, or fails with the error when `retry.modelFallback` is off. `/resume` also restores models from discovery-backed providers the way startup does ([#12274](https://github.com/can1357/oh-my-pi/issues/12274), [#13689](https://github.com/can1357/oh-my-pi/pull/13689) by [@alphastorm](https://github.com/alphastorm)).
 - Auto-retry no longer switches to the fallback chain when Codex's native turn lane rejects live steering after the response streamed reasoning; the turn retries on the same model with the steering message as ordinary input, and the chain is consulted only once no same-model retry is left ([#14242](https://github.com/can1357/oh-my-pi/pull/14242) by [@alphastorm](https://github.com/alphastorm))
+### Added
+
+- The status line can now be edited from the TUI: Appearance › Status Line › Center Bar picks the bar's segments as one ordered list, and `thinking` is a segment of its own so the effort level can sit anywhere on the bar ([#14397](https://github.com/can1357/oh-my-pi/pull/14397) by [@F0Rextasy](https://github.com/F0Rextasy)).
+
+### Fixed
+
+- Status line configs that set only `statusLine.leftSegments` and `statusLine.rightSegments` silently losing their whole right half. The Center Bar list carried the old Custom baseline as its default, so the bar always re-split a list the user had never configured and the configured halves were never reached ([#14397](https://github.com/can1357/oh-my-pi/pull/14397) by [@F0Rextasy](https://github.com/F0Rextasy)).
 
 ## [18.6.2] - 2026-10-04
 
@@ -33,13 +40,6 @@
 - Fixed snapcompact's short final frames preventing vision-backed sessions from continuing on backends that reject 32px-or-smaller images ([#14355](https://github.com/can1357/oh-my-pi/issues/14355)).
 - Fixed the agent's `goal` calls asking for approval under `--approval-mode write`, which paused goal-mode loops at `complete`; `always-ask` still prompts for goal changes but not `get` ([#14368](https://github.com/can1357/oh-my-pi/issues/14368))
 - Fixed MCP server connection progress popping up a toast for every server that connects or fails in native terminals such as Tern; it now shows only in the classic terminal transcript
-### Added
-
-- The status line can now be edited from the TUI: Appearance › Status Line › Center Bar picks the bar's segments as one ordered list, and `thinking` is a segment of its own so the effort level can sit anywhere on the bar ([#14397](https://github.com/can1357/oh-my-pi/pull/14397) by [@F0Rextasy](https://github.com/F0Rextasy)).
-
-### Fixed
-
-- Status line configs that set only `statusLine.leftSegments` and `statusLine.rightSegments` silently losing their whole right half. The Center Bar list carried the old Custom baseline as its default, so the bar always re-split a list the user had never configured and the configured halves were never reached ([#14397](https://github.com/can1357/oh-my-pi/pull/14397) by [@F0Rextasy](https://github.com/F0Rextasy)).
 
 ## [18.6.1] - 2026-10-04
 
