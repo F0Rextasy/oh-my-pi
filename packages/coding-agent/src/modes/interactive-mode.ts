@@ -351,6 +351,7 @@ import {
 	cfgStatusLinePreset,
 	cfgStatusLineRightSegments,
 	cfgStatusLineSegmentOptions,
+	cfgStatusLineSegments,
 	cfgStatusLineSeparator,
 	cfgStatusLineSessionAccent,
 	cfgStatusLineShowHookStatus,
@@ -432,6 +433,11 @@ const cfgLiveUiSettings = combine({
 	"tui.titleSpinner": cfgTuiTitleSpinner,
 	"statusLine.preset": cfgStatusLinePreset,
 	"statusLine.leftSegments": cfgStatusLineLeftSegments,
+	// The list the Center Bar row writes. Without it here a write that does not
+	// also move the preset (a config-file edit, another writer of the setting)
+	// never reaches the bar: `#syncStatusLineSettings` is the only thing that
+	// re-seeds it, and this is the list it keys off.
+	"statusLine.segments": cfgStatusLineSegments,
 	"statusLine.rightSegments": cfgStatusLineRightSegments,
 	"statusLine.separator": cfgStatusLineSeparator,
 	"statusLine.showHookStatus": cfgStatusLineShowHookStatus,
@@ -3541,6 +3547,7 @@ export class InteractiveMode implements InteractiveModeContext {
 				"statusLine.preset",
 				"statusLine.leftSegments",
 				"statusLine.rightSegments",
+				"statusLine.segments",
 				"statusLine.separator",
 				"statusLine.showHookStatus",
 				"statusLine.sessionAccent",

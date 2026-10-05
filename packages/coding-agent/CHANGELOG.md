@@ -33,6 +33,8 @@
 
 - Status line configs that set only `statusLine.leftSegments` and `statusLine.rightSegments` silently losing their whole right half. The Center Bar list carried the old Custom baseline as its default, so the bar always re-split a list the user had never configured and the configured halves were never reached ([#14397](https://github.com/can1357/oh-my-pi/pull/14397) by [@F0Rextasy](https://github.com/F0Rextasy)).
 - `/statusline` opening the settings overlay on Dark Theme instead of the Center Bar row. It named `statusLine.leftSegments`, which carries no panel metadata and therefore has no row to land on, so the deep link resolved to nothing and the bounded retry gave up silently ([#14397](https://github.com/can1357/oh-my-pi/pull/14397) by [@F0Rextasy](https://github.com/F0Rextasy)).
+- Closing `/settings` with Escape dropping a config's own `statusLine.leftSegments` / `statusLine.rightSegments`. The close path re-seeded the bar from the merged list alone, so such a bar drew correctly for as long as the overlay preview was feeding it and reverted to the stock Custom baseline the instant the panel closed ([#14397](https://github.com/can1357/oh-my-pi/pull/14397) by [@F0Rextasy](https://github.com/F0Rextasy)).
+- A write to `statusLine.segments` that did not also move `statusLine.preset` never reaching the bar. The setting was absent from the watch list that keys `#syncStatusLineSettings`, so only the segment editor, which flips the preset as a side effect, could get a new list onto the screen ([#14397](https://github.com/can1357/oh-my-pi/pull/14397) by [@F0Rextasy](https://github.com/F0Rextasy)).
 
 ## [18.6.2] - 2026-10-04
 

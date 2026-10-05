@@ -123,6 +123,64 @@ function createController(): SelectorController {
 	return new SelectorController(ctx);
 }
 
+interface SettingsOverlayHarness {
+	ctx: InteractiveModeContext;
+	/** Resolves with the mounted overlay, so the test awaits the mount itself. */
+	mounted: Promise<{ handleInput: (data: string) => void }>;
+	/** The bar the close path left behind, drawn the way the editor draws it. */
+	bar: () => { content: string; left: readonly StatusLineSegmentId[]; right: readonly StatusLineSegmentId[] };
+}
+
+/**
+ * A controller context complete enough to mount the real settings overlay.
+ * Every call the close path makes is routed into a real `StatusLineComponent`,
+ * so what the test reads afterwards is the bar that path produced.
+ */
+function settingsOverlayHarness(): SettingsOverlayHarness {
+	const component = statusLines.track(new StatusLineComponent(makeSession(), statusLineHost));
+	component.updateSettings(statusLineHost.getSettings());
+	const mounted = Promise.withResolvers<{ handleInput: (data: string) => void }>();
+	const ctx = {
+		settings: Settings.instance,
+		session: {
+			getAvailableThinkingLevels: () => [],
+			getAvailableModels: () => [],
+			thinkingLevel: undefined,
+			model: undefined,
+		},
+		editor: { getTopBorderAvailableWidth: () => 120 },
+		editorContainer: { children: [] as unknown[], addChild: () => {}, clear: () => {} },
+		statusLine: {
+			updateSettings: (next: Parameters<typeof component.updateSettings>[0]) => component.updateSettings(next),
+			invalidate: () => component.invalidate(),
+			describePreview: () => component.describePreview(),
+			getPreviewLines: (width: number) => component.getPreviewLines(width),
+		},
+		ui: {
+			showOverlay: (overlay: { handleInput: (data: string) => void }) => {
+				mounted.resolve(overlay);
+				return { hide: () => {} };
+			},
+			setFocus: () => {},
+			getFocused: () => undefined,
+			invalidate: () => {},
+			requestRender: () => {},
+		},
+	} as unknown as InteractiveModeContext;
+	return {
+		ctx,
+		mounted: mounted.promise,
+		bar: () => {
+			const effective = component.getEffectiveSettingsForTest();
+			return {
+				content: stripVTControlCharacters(component.getTopBorder(200).content).trim(),
+				left: effective.leftSegments,
+				right: effective.rightSegments,
+			};
+		},
+	};
+}
+
 describe("status line center bar", () => {
 	// The compatibility promise #14303 made in its own body: a config that sets
 	// the two halves keeps working. It did not, because the merged list was never
@@ -278,5 +336,33 @@ describe("status line center bar", () => {
 		const def = getSettingDef(createSettingsHost().entries, focusPaths[0] ?? "");
 		if (!def) throw new Error(`/statusline targets ${focusPaths[0]}, which is not a settings row`);
 		expect(def.label).toBe("Center Bar");
+	});
+	// Closing the settings overlay is the only way to leave it, and the close
+	// path re-seeds the bar. It re-seeded the bar from the merged list alone, so a
+	// config that only ever set the two halves drew correctly while the overlay
+	// was open and fell back to the stock Custom baseline the moment the user
+	// pressed Escape. Driven through the real overlay and the real renderer: the
+	// assertion is what the bar draws after the overlay is gone, not what the
+	// close handler passed in.
+	it("keeps the configured halves when /settings is closed", async () => {
+		cfgStatusLinePreset.set(Settings.instance, "custom");
+		cfgStatusLineLeftSegments.set(Settings.instance, ["model"]);
+		cfgStatusLineRightSegments.set(Settings.instance, ["session_name", "session"]);
+
+		const before = renderBar();
+		expect(before.right).toEqual(["session_name", "session"]);
+
+		const harness = settingsOverlayHarness();
+		new SelectorController(harness.ctx).showSettingsSelector();
+		const overlay = await harness.mounted;
+
+		// Escape is the key that closes the panel.
+		overlay.handleInput("\x1b");
+
+		const after = harness.bar();
+		expect(after.right).toEqual(["session_name", "session"]);
+		expect(after.left).toEqual(["model"]);
+		expect(after.content).toContain("legacy-session");
+		expect(after.content).toContain("Sonnet 5");
 	});
 });

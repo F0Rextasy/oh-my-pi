@@ -135,9 +135,11 @@ import { cfgDefaultThinkingLevel, cfgRetryFallbackChains } from "../../session/s
 import {
 	cfgStatusLineCompactThinkingLevel,
 	cfgStatusLineContextLine,
-	cfgStatusLineSegments,
+	cfgStatusLineLeftSegments,
 	cfgStatusLinePreset,
+	cfgStatusLineRightSegments,
 	cfgStatusLineSegmentOptions,
+	cfgStatusLineSegments,
 	cfgStatusLineSeparator,
 	cfgStatusLineSessionAccent,
 	cfgStatusLineShowHookStatus,
@@ -330,6 +332,15 @@ export class SelectorController {
 						this.ctx.statusLine.updateSettings({
 							preset: cfgStatusLinePreset.get(settings),
 							segments: statusLineCenterBarSegments(settings),
+							// The two halves too. `updateSettings` replaces the bar's
+							// whole configuration, so a config that only ever set
+							// `leftSegments` / `rightSegments` drew its own bar for as
+							// long as the overlay preview kept feeding them, then fell
+							// back to the stock Custom baseline the moment Escape ran
+							// this. Both seeding paths have to carry the same fields as
+							// the live host, or closing the panel undoes the opening.
+							leftSegments: cfgStatusLineLeftSegments.get(settings),
+							rightSegments: cfgStatusLineRightSegments.get(settings),
 							separator: cfgStatusLineSeparator.get(settings),
 							showHookStatus: cfgStatusLineShowHookStatus.get(settings),
 							sessionAccent: cfgStatusLineSessionAccent.get(settings),
