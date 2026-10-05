@@ -7,7 +7,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import type { ScreenshotResult } from "@oh-my-pi/pi-coding-agent/tools/browser/tab-protocol";
 import * as path from "node:path";
-import { encodePng } from "@oh-my-pi/pi-coding-agent/tools/browser/screenshot";
+import { type ScreenshotChangeResult, encodePng } from "@oh-my-pi/pi-coding-agent/tools/browser/screenshot";
 import { RunOutput } from "@oh-my-pi/pi-coding-agent/tools/browser/run-output";
 
 /** Stand-in for the bytes Tern returns from a `capture` op: a solid 4x4 PNG. */
@@ -101,6 +101,12 @@ async function openTab(
 		allowedDomains: ["example.test"],
 		...extra,
 	});
+}
+
+/** Narrow a screenshot result to its destination path, failing if change detection returned instead. */
+function destOf(result: string | ScreenshotChangeResult): string {
+	if (typeof result !== "string") throw new Error(`Expected a destination path, got ${JSON.stringify(result)}`);
+	return result;
 }
 
 describe("TernTab", () => {
@@ -379,7 +385,7 @@ describe("TernTab", () => {
 			timeoutMs: 5_000,
 		});
 		try {
-			const requested = (await tab.screenshot({ path: "shots/requested.png", silent: true })) as string;
+			const requested = destOf(await tab.screenshot({ path: "shots/requested.png", silent: true }));
 			expect(requested).toBe(path.join(cwd, "shots", "requested.png"));
 			expect((await fs.readFile(requested)).subarray(0, 8)).toEqual(
 				Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
@@ -387,7 +393,7 @@ describe("TernTab", () => {
 			expect(screenshots.map(entry => entry.dest)).toEqual([requested]);
 			expect(await fs.readdir(screenshotDir)).toEqual([]);
 
-			const fallback = (await tab.screenshot({ silent: true })) as string;
+			const fallback = destOf(await tab.screenshot({ silent: true }));
 			expect(path.dirname(fallback)).toBe(screenshotDir);
 		} finally {
 			await fs.rm(cwd, { recursive: true, force: true });

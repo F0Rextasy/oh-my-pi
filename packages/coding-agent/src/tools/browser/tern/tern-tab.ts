@@ -1829,7 +1829,11 @@ export class TernTab implements InProcessRunTab {
 				excludeWebP: context.session.excludeWebP,
 			},
 		);
-		const saveFullRes = !!context.session.browserScreenshotDir || opts.format !== undefined;
+		// An explicit `path` names the destination, so the bytes written there must match
+		// the extension the caller chose: the resize branch re-encodes to JPEG or WebP, and
+		// those bytes under a `.png` name cannot be decoded by diffScreenshot().
+		const saveFullRes =
+			!!context.session.browserScreenshotDir || opts.format !== undefined || opts.path !== undefined;
 		const savedBuffer = saveFullRes ? buffer : Buffer.from(resized.buffer);
 		const savedMimeType = saveFullRes ? mime : resized.mimeType;
 		const ext = savedMimeType === "image/webp" ? "webp" : savedMimeType === "image/jpeg" ? "jpg" : "png";

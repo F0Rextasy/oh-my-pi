@@ -28,6 +28,7 @@
 ### Fixed
 
 - Fixed `tab.screenshot({ path })` being silently ignored: the capture now lands at the requested absolute or cwd-relative file instead of the browser screenshot directory ([#6576](https://github.com/can1357/oh-my-pi/issues/6576))
+- Fixed `tab.screenshot({ path })` writing re-encoded JPEG or WebP bytes under the caller's `.png` name, which made `tab.diffScreenshot()` fail to decode its own baseline: an explicit `path` now always saves the original capture ([#6576](https://github.com/can1357/oh-my-pi/issues/6576))
 
 ## [18.6.2] - 2026-10-04
 

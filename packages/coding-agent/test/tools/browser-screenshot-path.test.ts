@@ -32,11 +32,14 @@ function createHost(cwd: string, screenshotDir: string) {
 		prelude.invoke(parameters, { session, toolCallId: `browser-screenshot-path-${crypto.randomUUID()}` });
 }
 
-function valueFrom<T>(result: { details?: unknown }): T {
+/** The destination path a browser call returned, rejecting a non-string value. */
+function pathFrom(result: { details?: unknown }): string {
 	if (!result.details || typeof result.details !== "object" || !("value" in result.details)) {
 		throw new Error("Browser result did not include a value");
 	}
-	return result.details.value as T;
+	const { value } = result.details as { value: unknown };
+	if (typeof value !== "string") throw new Error(`Expected a destination path, got ${JSON.stringify(value)}`);
+	return value;
 }
 
 afterAll(async () => {
@@ -59,7 +62,7 @@ describe.skipIf(!CHROMIUM_AVAILABLE)("browser screenshot path", () => {
 		});
 		try {
 			// A cwd-relative destination lands under the session cwd, parents included.
-			const relative = valueFrom<string>(
+			const relative = pathFrom(
 				await invoke({
 					action: "call",
 					name,
@@ -71,7 +74,7 @@ describe.skipIf(!CHROMIUM_AVAILABLE)("browser screenshot path", () => {
 			expect(await fs.readdir(screenshotDir)).toEqual([]);
 
 			// An absolute destination wins over the configured screenshot directory.
-			const absolute = valueFrom<string>(
+			const absolute = pathFrom(
 				await invoke({
 					action: "call",
 					name,
@@ -83,7 +86,7 @@ describe.skipIf(!CHROMIUM_AVAILABLE)("browser screenshot path", () => {
 			expect(await fs.readdir(screenshotDir)).toEqual([]);
 
 			// Without `path` the screenshot directory is still the destination.
-			const fallback = valueFrom<string>(
+			const fallback = pathFrom(
 				await invoke({
 					action: "call",
 					name,
