@@ -500,6 +500,32 @@ function hasContextSegment(segments: readonly StatusLineSegmentId[]): boolean {
 	return segments.includes("context_pct") || segments.includes("context_total");
 }
 
+/**
+ * Which context segments the embedded gauge absorbed. Both ids render on the
+ * gauge line rather than as standalone segments, so the gauge has to honour
+ * the configured selection: `context_pct` draws the percentage only,
+ * `context_total` the window only, both draws both.
+ */
+interface EmbeddedContextLabels {
+	percent: boolean;
+	window: boolean;
+}
+
+/**
+ * Gap width the embedded gauge needs for the labels it actually draws; an
+ * unknown percent (`null`) drops the percent label. A gauge configured with
+ * only one context segment must not reserve room for the other one.
+ */
+function embeddedContextGaugeMinWidth(
+	labels: EmbeddedContextLabels,
+	percent: number | null,
+	contextWindow: number,
+): number {
+	const percentWidth = labels.percent && percent !== null ? formatEmbeddedContextPercent(percent).length + 2 : 0;
+	const windowWidth = labels.window ? formatNumber(contextWindow).length + 2 : 0;
+	return percentWidth + windowWidth;
+}
+
 function hasNonContextSegment(segments: readonly StatusLineSegmentId[]): boolean {
 	for (const segment of segments) {
 		if (!isContextSegment(segment)) return true;
@@ -522,12 +548,6 @@ function removeContextSegments(parts: string[], segments: StatusLineSegmentId[])
 
 function formatEmbeddedContextPercent(percent: number): string {
 	return `${percent > 0 && percent < 1 ? percent.toFixed(1) : Math.round(percent)}%`;
-}
-
-/** Gap width the embedded gauge needs for its labels; an unknown percent (`null`) shows the window label alone. */
-function embeddedContextGaugeMinWidth(percent: number | null, contextWindow: number): number {
-	const percentWidth = percent === null ? 0 : formatEmbeddedContextPercent(percent).length + 2;
-	return percentWidth + formatNumber(contextWindow).length + 2;
 }
 
 function hasGitSegment(segments: readonly StatusLineSegmentId[]): boolean {
@@ -2794,13 +2814,20 @@ export class StatusLineComponent<TSession extends StatusLineSession = StatusLine
 			}
 		}
 
-		const embedContext =
+		// `null` keeps the context segments standalone; otherwise the gauge
+		// absorbed them and draws exactly the labels that were configured.
+		let embeddedLabels: EmbeddedContextLabels | null = null;
+		if (
 			!plain &&
 			effectiveSettings.contextLine === "embedded" &&
 			ctx.contextWindow > 0 &&
 			(hasContextSegment(leftSegIds) || hasContextSegment(rightSegIds)) &&
-			(hasNonContextSegment(leftSegIds) || hasNonContextSegment(rightSegIds));
-		if (embedContext) {
+			(hasNonContextSegment(leftSegIds) || hasNonContextSegment(rightSegIds))
+		) {
+			embeddedLabels = {
+				percent: leftSegIds.includes("context_pct") || rightSegIds.includes("context_pct"),
+				window: leftSegIds.includes("context_total") || rightSegIds.includes("context_total"),
+			};
 			removeContextSegments(leftParts, leftSegIds);
 			removeContextSegments(rightParts, rightSegIds);
 		}
@@ -2841,11 +2868,12 @@ export class StatusLineComponent<TSession extends StatusLineSession = StatusLine
 		let leftWidth = groupWidth(leftWidths, leftCapWidth + bandCapWidth, leftSepWidth);
 		let rightWidth = groupWidth(rightWidths, rightCapWidth, rightSepWidth);
 		// Embedded mode removes the standalone context segment before overflow
-		// handling, so the gauge must reserve enough room for both labels. Without
-		// this budget a long path/session title can leave a one-cell gap: the
-		// context segment is gone, and the gauge silently omits its labels too.
-		const embeddedContextWidth = embedContext
-			? embeddedContextGaugeMinWidth(ctx.contextPercent, ctx.contextWindow)
+		// handling, so the gauge must reserve enough room for the labels it
+		// draws. Without this budget a long path/session title can leave a
+		// one-cell gap: the context segment is gone, and the gauge silently
+		// omits its labels too.
+		const embeddedContextWidth = embeddedLabels
+			? embeddedContextGaugeMinWidth(embeddedLabels, ctx.contextPercent, ctx.contextWindow)
 			: 0;
 		const minimumGapWidth = (): number => {
 			if (!embeddedContextWidth) return left.length > 0 && right.length > 0 ? 1 : 0;
@@ -2982,7 +3010,7 @@ export class StatusLineComponent<TSession extends StatusLineSession = StatusLine
 		// `session_name`, emptying the default preset's right group) the gauge
 		// runs to the border edge instead of disappearing, so embedded context
 		// labels don't fall back to a context chip until the session is titled.
-		return leftGroup + this.#buildContextGaugeFill(gapWidth, ctx, effectiveSettings, embedContext) + rightGroup;
+		return leftGroup + this.#buildContextGaugeFill(gapWidth, ctx, effectiveSettings, embeddedLabels) + rightGroup;
 	}
 
 	/**
@@ -2999,7 +3027,7 @@ export class StatusLineComponent<TSession extends StatusLineSession = StatusLine
 		gapWidth: number,
 		ctx: SegmentContext,
 		effectiveSettings: EffectiveStatusLineSettings,
-		embedContext: boolean,
+		embeddedLabels: EmbeddedContextLabels | null,
 	): string {
 		const sessionName =
 			effectiveSettings.sessionAccent !== false ? this.session.sessionManager?.getSessionName() : undefined;
@@ -3024,19 +3052,27 @@ export class StatusLineComponent<TSession extends StatusLineSession = StatusLine
 		// smaller window). The bar clamps full, but the embedded label breaks
 		// past the window label — `──200K─120%` with the percent in error color.
 		const percentOverflow = pct !== null && pct > 100;
-		if (embedContext) {
-			const candidatePercent = pct === null ? "" : formatEmbeddedContextPercent(percentOverflow ? pct : clampedPct);
-			const candidateWindow = formatNumber(ctx.contextWindow);
-			if (gapWidth >= embeddedContextGaugeMinWidth(pct, ctx.contextWindow)) {
+		if (embeddedLabels) {
+			const candidatePercent =
+				!embeddedLabels.percent || pct === null
+					? ""
+					: formatEmbeddedContextPercent(percentOverflow ? pct : clampedPct);
+			const candidateWindow = embeddedLabels.window ? formatNumber(ctx.contextWindow) : "";
+			if (gapWidth >= embeddedContextGaugeMinWidth(embeddedLabels, pct, ctx.contextWindow)) {
 				percentLabel = candidatePercent;
 				windowLabel = candidateWindow;
-				if (percentOverflow) {
+				if (percentOverflow && percentLabel) {
+					// With no window label the percentage is the right-edge
+					// anchor itself; otherwise it breaks past the window label.
 					percentStart = gapWidth - percentLabel.length;
-					windowStart = percentStart - 1 - windowLabel.length;
-				} else {
+					if (windowLabel) {
+						windowStart = percentStart - 1 - windowLabel.length;
+						scaleWidth = windowStart;
+					}
+				} else if (windowLabel) {
 					windowStart = gapWidth - windowLabel.length - 1;
+					scaleWidth = windowStart;
 				}
-				scaleWidth = windowStart;
 			}
 		}
 

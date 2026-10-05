@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed the embedded context gauge drawing both a percentage and a context-window number regardless of which context segments were configured: with `statusLine.contextLine` set to `embedded`, `context_pct` now draws only the percentage and `context_total` only the window, so the shipped default preset no longer shows a window size the user never asked for (by [@F0Rextasy](https://github.com/F0Rextasy))
+
 ## [18.6.1] - 2026-10-04
 
 ### Fixed
