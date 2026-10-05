@@ -27,7 +27,7 @@
 - Auto-retry no longer switches to the fallback chain when Codex's native turn lane rejects live steering after the response streamed reasoning; the turn retries on the same model with the steering message as ordinary input, and the chain is consulted only once no same-model retry is left ([#14242](https://github.com/can1357/oh-my-pi/pull/14242) by [@alphastorm](https://github.com/alphastorm))
 ### Added
 
-- The status line can now be edited from the TUI: Appearance › Status Line › Center Bar picks the bar's segments as one ordered list, and `thinking` is a segment of its own so the effort level can sit anywhere on the bar ([#14397](https://github.com/can1357/oh-my-pi/pull/14397) by [@F0Rextasy](https://github.com/F0Rextasy)).
+- The status line can now be edited from the TUI: Appearance › Status Line › Center Bar picks the bar's segments as one ordered list, with each segment's position shown and reorderable by drag, ←/→ or a position number, and `thinking` is a segment of its own so the effort level can sit anywhere on the bar ([#14397](https://github.com/can1357/oh-my-pi/pull/14397) by [@F0Rextasy](https://github.com/F0Rextasy)).
 
 ### Fixed
 

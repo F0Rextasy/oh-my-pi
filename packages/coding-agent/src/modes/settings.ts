@@ -348,6 +348,10 @@ export const cfgStatusLineSegments = register({
 		description:
 			"The whole bar as one list, in order. Segments every omp preset puts at the right end take that end; the rest fill from the left.",
 		options: STATUS_LINE_SEGMENT_OPTIONS,
+		// The row's own description promises order, so the editor has to offer it:
+		// without this the chooser is membership-only, every segment the user adds
+		// lands at the end of the list, and there is no way to move one.
+		ordered: true,
 	},
 });
 

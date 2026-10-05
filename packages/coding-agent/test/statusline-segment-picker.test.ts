@@ -1,6 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { cfgStatusLineSegments, cfgStatusLineLeftSegments, cfgStatusLineRightSegments } from "../src/modes/settings";
 import { STATUS_LINE_SEGMENT_IDS } from "@oh-my-pi/pi-tui/status-line/schema";
+import { createSettingsHost } from "../src/config/settings-ui";
+import { getSettingDef } from "@oh-my-pi/pi-tui/overlays/settings-defs";
 
 /**
  * The segment lists were reachable only by hand-editing `config.yml`: the
@@ -46,5 +48,16 @@ describe("status line segment chooser", () => {
 		// `items` lives only on the array form of a setting definition.
 		const items = (cfgStatusLineSegments.definition as { items?: { values: readonly string[] } }).items;
 		expect(items?.values).toEqual(STATUS_LINE_SEGMENT_IDS);
+	});
+
+	// The row's own description promises the bar "as one list, in order", and the
+	// editor only offers order when the setting asks for it: positions, drag,
+	// ←/→ and 1-9 placement are all gated on this flag. Without it the chooser is
+	// membership-only, every segment the user adds lands at the end of the list,
+	// and there is no way to move one.
+	it("opens the chooser as an ordered list", () => {
+		const def = getSettingDef(createSettingsHost().entries, cfgStatusLineSegments.id);
+		if (def?.type !== "multiselect") throw new Error(`Center Bar row resolved to ${def?.type}, not a multiselect`);
+		expect(def.ordered).toBe(true);
 	});
 });
