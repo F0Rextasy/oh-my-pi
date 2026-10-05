@@ -171,7 +171,9 @@ async function scanStandardSkills(
 			}
 			// §7.1: the Agent Skills specification is the source of truth for skill
 			// validity; the frontmatter schema is closed per skills-ref, so client
-			// conventions like `enabled` reject the skill as an unexpected field.
+			// conventions like `enabled` reject the skill as an unexpected field. The
+			// prompt-hiding opt-outs (`hide`, `disable-model-invocation`) are exempt:
+			// they select a skill for hiding, which happens after this check.
 			// Non-conforming skills are skipped without affecting other components.
 			const violation = validateAgentSkillFrontmatter(rawFrontmatter, entry.name);
 			if (violation !== null) {

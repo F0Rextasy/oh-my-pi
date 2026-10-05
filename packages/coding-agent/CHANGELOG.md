@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed Agent Plugins skills that set `hide` or `disable-model-invocation` being dropped instead of loaded and hidden from the prompt listing ([#10505](https://github.com/can1357/oh-my-pi/issues/10505) by [@F0Rextasy](https://github.com/F0Rextasy))
+
 ## [18.6.2] - 2026-10-04
 
 ### Fixed

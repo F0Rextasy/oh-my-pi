@@ -60,7 +60,7 @@ Supported frontmatter fields on the skill type:
 - additional keys are preserved as unknown metadata by conventional scanners
 - `enabled: false` skips a skill in conventional scanners and Skillshare discovery
 
-`globs` and `alwaysApply` are metadata here, not automatic skill-invocation controls. Agent Plugins packages use stricter Agent Skills validation instead of the permissive scanner: required name/description, directory-name agreement, valid naming, and a closed frontmatter field set. OMP-specific fields such as `hide` and `enabled` are not accepted there.
+`globs` and `alwaysApply` are metadata here, not automatic skill-invocation controls. Agent Plugins packages use stricter Agent Skills validation instead of the permissive scanner: required name/description, directory-name agreement, valid naming, and a closed frontmatter field set. That closed set is the six Agent Skills fields plus the prompt-hiding opt-outs `hide` and `disable-model-invocation`, which load the skill and hide it from the prompt listing. OMP-specific fields such as `enabled` are not accepted there.
 
 Current runtime behavior:
 

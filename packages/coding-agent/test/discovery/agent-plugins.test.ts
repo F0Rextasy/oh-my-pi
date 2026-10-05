@@ -576,12 +576,15 @@ describe("agent-plugins discovery", () => {
 		expect(skills.warnings.some(warning => warning.includes(`"commented": missing required "name"`))).toBe(true);
 	});
 
-	test("closes skill frontmatter to the six standard fields", async () => {
+	test("closes skill frontmatter to the spec fields and the prompt-hiding opt-outs", async () => {
 		await writeManifest();
 		// Standard key with a non-string value → non-conforming, skipped.
 		await writeSkill("bad-tools", "name: bad-tools\ndescription: ok\nallowed-tools: 5");
 		// Nonstandard camelCase alias is an unexpected field → skipped (skills-ref).
 		await writeSkill("camel-alias", "name: camel-alias\ndescription: ok\nallowedTools: Read");
+		// Opt-out key with a non-boolean value → non-conforming, skipped.
+		await writeSkill("bad-hide", "name: bad-hide\ndescription: ok\nhide: yes please");
+		await writeSkill("bad-opt-out", "name: bad-opt-out\ndescription: ok\ndisable-model-invocation: 1");
 		// All six standard fields together → conforming.
 		await writeSkill(
 			"full",
@@ -604,6 +607,31 @@ describe("agent-plugins discovery", () => {
 		expect(skills.warnings.some(warning => warning.includes(`unexpected frontmatter field "allowedTools"`))).toBe(
 			true,
 		);
+		expect(skills.warnings.some(warning => warning.includes(`"hide" must be a boolean`))).toBe(true);
+		expect(skills.warnings.some(warning => warning.includes(`"disable-model-invocation" must be a boolean`))).toBe(
+			true,
+		);
+	});
+
+	test("loads and hides skills that opt out of prompt listing", async () => {
+		await writeManifest();
+		await writeSkill(
+			"no-model-invocation",
+			"name: no-model-invocation\ndescription: Opt out via the standard key\ndisable-model-invocation: true",
+		);
+		await writeSkill("hidden", "name: hidden\ndescription: Opt out via the client key\nhide: true");
+		await writeSkill("visible", "name: visible\ndescription: No opt-out key");
+		await writeRegistry(pluginPath);
+
+		const { skills, warnings } = await loadSkills({ cwd: tempDir });
+		const fromPlugin = skills.filter(skill => skill._source?.provider === "agent-plugins");
+		// Both opt-out keys load the skill; they hide it from the prompt listing
+		// rather than dropping it, so `skill://<name>` stays reachable.
+		expect(fromPlugin.map(skill => skill.name).sort()).toEqual(["hidden", "no-model-invocation", "visible"]);
+		expect(fromPlugin.find(skill => skill.name === "no-model-invocation")?.hide).toBe(true);
+		expect(fromPlugin.find(skill => skill.name === "hidden")?.hide).toBe(true);
+		expect(fromPlugin.find(skill => skill.name === "visible")?.hide).toBe(false);
+		expect(warnings.some(warning => warning.message.includes("unexpected frontmatter field"))).toBe(false);
 	});
 
 	test("gives same-name installs distinct, stable persistent data directories", async () => {

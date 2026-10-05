@@ -86,7 +86,13 @@ function isValidAgentPluginName(name: string): boolean {
 	return !name.includes("--") && !name.includes("..");
 }
 
-/** The closed frontmatter field set from the skills-ref reference validator. */
+/**
+ * The closed frontmatter field set: the six skills-ref fields plus the two
+ * client opt-out keys every other provider path already reads (`hide` and its
+ * Agent Skills-spelled alias `disable-model-invocation`). Both select a skill
+ * for prompt hiding, not rejection, so omitting them here dropped such skills
+ * outright instead of loading them hidden.
+ */
 const SKILL_FIELDS: Record<string, true> = {
 	name: true,
 	description: true,
@@ -94,7 +100,11 @@ const SKILL_FIELDS: Record<string, true> = {
 	"allowed-tools": true,
 	metadata: true,
 	compatibility: true,
+	hide: true,
+	"disable-model-invocation": true,
 };
+/** Client opt-out keys, spelled exactly as they appear in raw frontmatter. */
+const SKILL_HIDE_FIELDS = ["hide", "disable-model-invocation"] as const;
 /** Skill `name` characters: Unicode letters/digits (Python `str.isalnum`) and hyphens. */
 const SKILL_NAME_CHARS_RE = /^[\p{L}\p{N}-]+$/u;
 
@@ -117,9 +127,10 @@ function validateSkillName(raw: unknown, dirName: string): string | null {
  * Validate `SKILL.md` frontmatter against the Agent Skills specification
  * (https://agentskills.io/specification), the source of truth for skill
  * validity under Agent Plugins §7.1, mirroring the official skills-ref
- * reference validator: the frontmatter schema is CLOSED to its six fields and
- * any unexpected key rejects the skill. Returns the first violation, or `null`
- * when the skill conforms. Frontmatter keys must be raw (unnormalized).
+ * reference validator: the frontmatter schema is CLOSED to the six spec fields
+ * plus the client prompt-hiding opt-outs, and any unexpected key rejects the
+ * skill. Returns the first violation, or `null` when the skill conforms.
+ * Frontmatter keys must be raw (unnormalized).
  */
 export function validateAgentSkillFrontmatter(frontmatter: Record<string, unknown>, dirName: string): string | null {
 	for (const key in frontmatter) {
@@ -155,6 +166,13 @@ export function validateAgentSkillFrontmatter(frontmatter: Record<string, unknow
 	const allowedTools = frontmatter["allowed-tools"];
 	if (allowedTools !== undefined && typeof allowedTools !== "string") {
 		return `"allowed-tools" must be a string`;
+	}
+
+	// Prompt-hiding opt-outs: present-but-non-boolean is a malformed skill, the
+	// same treatment every other optional field gets.
+	for (const field of SKILL_HIDE_FIELDS) {
+		const value = frontmatter[field];
+		if (value !== undefined && typeof value !== "boolean") return `"${field}" must be a boolean`;
 	}
 
 	return null;
