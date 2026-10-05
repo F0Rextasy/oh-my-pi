@@ -104,20 +104,27 @@ export async function loadBabelParser(): Promise<typeof BabelParser> {
 	return babelParser;
 }
 
+// Parse profile for authored cell source. Shared by every pass that inspects a cell, so the
+// stray-template diagnostic in `diagnoseStrayTemplateBacktick` judges a candidate repair
+// against exactly the grammar the rest of the pipeline will run.
+const CELL_PARSE_OPTIONS: BabelParser.ParseOptions = {
+	sourceType: "module",
+	allowAwaitOutsideFunction: true,
+	allowReturnOutsideFunction: true,
+	allowImportExportEverywhere: true,
+	allowNewTargetOutsideFunction: true,
+	allowSuperOutsideMethod: true,
+	allowUndeclaredExports: true,
+	errorRecovery: true,
+	plugins: ["typescript"],
+};
+
 async function parseProgram(code: string): Promise<{ program: { body: ReadonlyArray<BabelProgramNode> } } | null> {
 	const { parse } = await loadBabelParser();
 	try {
-		return parse(code, {
-			sourceType: "module",
-			allowAwaitOutsideFunction: true,
-			allowReturnOutsideFunction: true,
-			allowImportExportEverywhere: true,
-			allowNewTargetOutsideFunction: true,
-			allowSuperOutsideMethod: true,
-			allowUndeclaredExports: true,
-			errorRecovery: true,
-			plugins: ["typescript"],
-		}) as unknown as { program: { body: ReadonlyArray<BabelProgramNode> } };
+		return parse(code, CELL_PARSE_OPTIONS) as unknown as {
+			program: { body: ReadonlyArray<BabelProgramNode> };
+		};
 	} catch {
 		return null;
 	}
@@ -1017,6 +1024,11 @@ const LOOKS_LIKE_TS =
 export async function wrapCode(
 	code: string,
 ): Promise<{ source: string; asyncWrapped: boolean; finalExpressionReturned: boolean }> {
+	// The engine's `SyntaxError` carries no cell position, and every rewriter below silently
+	// hands unparseable source back, so a slip the model can act on is raised here — first, on
+	// the untouched cell — instead of as a bare lexer message after the VM.
+	const strayTemplate = await diagnoseStrayTemplateBacktick(code);
+	if (strayTemplate) throw strayTemplate;
 	const instrumented = await instrumentRuntimeCallSites(code);
 	const finalExpression = await returnFinalExpression(instrumented);
 	const stripped = stripTypeScript(finalExpression.source);
@@ -1034,4 +1046,164 @@ export async function wrapCode(
 		asyncWrapped: true,
 		finalExpressionReturned: rewritten.returned,
 	};
+}
+
+// A raw backtick inside an untagged template literal — a shell command substitution such as
+// ``now=`date +%s` `` authored into a bash script that the cell is holding in a JS string —
+// ends the template where the author never ended it. The cell then dies at parse time before a
+// single statement runs, and the engine's lexer message names a token that is not at fault, so
+// the failure reads as a broken harness rather than an authoring slip. `String.raw` is not a
+// remedy: template termination is a lexing rule applied before any tag runs, and the raw form
+// keeps the escape backslash in the result.
+//
+// The offending backtick is found by repair rather than guessed from the parser's error offset,
+// which drifts between Babel versions and can land deep inside the template tail: a candidate
+// is accepted only when letting the template run on to a later backtick — i.e. dropping the
+// backticks in between — makes the cell parse cleanly. An unrelated syntax error can therefore
+// never pick up this hint.
+
+// Bounds the repair search. A cell with more backticks than this still gets the hint when the
+// culprit is among the first few; past that the search is abandoned and the engine error stands.
+const MAX_STRAY_TEMPLATE_CANDIDATES = 8;
+
+// Longest source line echoed into the code frame before it is windowed around the caret.
+const SYNTAX_FRAME_WIDTH = 120;
+
+type CellParseOutcome = { clean: true } | { clean: false; message: string };
+
+function parseCell(parse: typeof BabelParser.parse, code: string): CellParseOutcome {
+	let message: string;
+	try {
+		const file = parse(code, CELL_PARSE_OPTIONS) as unknown as { errors?: ReadonlyArray<{ message: string }> };
+		const errors = file.errors;
+		if (!errors || errors.length === 0) return { clean: true };
+		// `errorRecovery` reports recoverable slips here (e.g. `break;` outside a loop); the
+		// engine still refuses the cell, so they count as parse failures for this diagnosis.
+		message = errors[0].message;
+	} catch (error) {
+		message = error instanceof Error ? error.message : String(error);
+	}
+	// Babel appends its own `(line:column)`; the code frame below carries the cell position.
+	return { clean: false, message: message.replace(/ \(\d+:\d+\)$/, "") };
+}
+
+function skipQuotedString(code: string, start: number, quote: string): number {
+	let i = start + 1;
+	while (i < code.length) {
+		const char = code[i];
+		if (char === "\\") {
+			i += 2;
+			continue;
+		}
+		if (char === quote) return i + 1;
+		if (char === "\n") return i; // unterminated — resume on the next line
+		i++;
+	}
+	return i;
+}
+
+// Offsets of every backtick that can delimit a template literal: unescaped, and outside a
+// comment or a quoted string. Deliberately permissive — regex literals and `${ ... }`
+// substitutions are not tracked — because each candidate must survive a parse check before it is
+// reported, so a misclassified candidate is only ever rejected.
+function templateDelimiterOffsets(code: string): number[] {
+	const offsets: number[] = [];
+	let i = 0;
+	while (i < code.length) {
+		const char = code[i];
+		if (char === "\\") {
+			i += 2; // an escaped backtick is template content, not a delimiter
+			continue;
+		}
+		if (char === "/" && code[i + 1] === "/") {
+			const newline = code.indexOf("\n", i + 2);
+			i = newline === -1 ? code.length : newline + 1;
+			continue;
+		}
+		if (char === "/" && code[i + 1] === "*") {
+			const end = code.indexOf("*/", i + 2);
+			i = end === -1 ? code.length : end + 2;
+			continue;
+		}
+		if (char === "'" || char === '"') {
+			i = skipQuotedString(code, i, char);
+			continue;
+		}
+		if (char === "`") {
+			offsets.push(i);
+			i++;
+			continue;
+		}
+		i++;
+	}
+	return offsets;
+}
+
+function removeOffsets(code: string, offsets: ReadonlyArray<number>): string {
+	let result = "";
+	let cursor = 0;
+	for (const offset of offsets) {
+		result += code.slice(cursor, offset);
+		cursor = offset + 1;
+	}
+	return result + code.slice(cursor);
+}
+
+function locateOffset(code: string, offset: number): { line: number; column: number; text: string } {
+	const head = code.slice(0, offset);
+	const lastBreak = Math.max(
+		head.lastIndexOf("\n"),
+		head.lastIndexOf("\r"),
+		head.lastIndexOf("\u2028"),
+		head.lastIndexOf("\u2029"),
+	);
+	const newline = code.indexOf("\n", offset);
+	return {
+		line: head.split(/\r\n|[\n\r\u2028\u2029]/).length,
+		column: offset - lastBreak,
+		text: code.slice(lastBreak + 1, newline === -1 ? code.length : newline).replace(/\r$/, ""),
+	};
+}
+
+/**
+ * Reports the raw-backtick-ends-the-template authoring slip, or `undefined` when the cell fails
+ * for any other reason. Raising it from `wrapCode` keeps the position on the authored source —
+ * no instrumentation has run yet — instead of letting the engine's position-less lexer message
+ * reach the agent on its own.
+ */
+async function diagnoseStrayTemplateBacktick(code: string): Promise<SyntaxError | undefined> {
+	// Cheap gate: cells without a backtick cannot have this failure, and stay off the parser.
+	if (!code.includes("`")) return undefined;
+	const { parse } = await loadBabelParser();
+	const failure = parseCell(parse, code);
+	if (failure.clean) return undefined;
+	const candidates = templateDelimiterOffsets(code);
+	const limit = Math.min(candidates.length, MAX_STRAY_TEMPLATE_CANDIDATES);
+	for (let open = 0; open < limit - 2; open++) {
+		for (let close = open + 2; close < limit; close++) {
+			const stray = candidates.slice(open + 1, close);
+			if (!parseCell(parse, removeOffsets(code, stray)).clean) continue;
+			const at = locateOffset(code, stray[0]);
+			const gutter = String(at.line).length;
+			let text = at.text;
+			let caretColumn = at.column;
+			if (text.length > SYNTAX_FRAME_WIDTH) {
+				const start = Math.min(
+					Math.max(0, at.column - 1 - Math.floor(SYNTAX_FRAME_WIDTH / 2)),
+					text.length - SYNTAX_FRAME_WIDTH,
+				);
+				text = text.slice(start, start + SYNTAX_FRAME_WIDTH);
+				caretColumn = at.column - start;
+			}
+			return new SyntaxError(
+				[
+					failure.message,
+					`${String(at.line).padStart(gutter)} | ${text}`,
+					`${" ".repeat(gutter)} | ${" ".repeat(caretColumn - 1)}^`,
+					`hint: the raw backtick at line ${at.line}, column ${at.column} ends this template literal early, so everything after it is parsed as JavaScript instead of string content. Escape it as \\\` : an untagged template cooks that backslash, leaving a bare backtick in the string. \`String.raw\` is not a remedy here — template termination is a lexing rule applied before any tag runs, and the raw form keeps the escape backslash in the result.`,
+				].join("\n"),
+			);
+		}
+	}
+	return undefined;
 }

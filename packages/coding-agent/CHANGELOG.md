@@ -86,6 +86,7 @@
 - Advisor concerns and notes now reach an active same-run continuation after a terminal answer instead of being retained unnecessarily.
 
 ### Fixed
+- A JS eval cell that authors non-JS content inside an untagged template literal died at parse time with JSC position-less lexer error and no cell location, so an ordinary authoring slip presented as a broken harness; the diagnostic now locates the stray backtick by repair and reports the position, code frame and escaping rule ([#14275](https://github.com/can1357/oh-my-pi/issues/14275)).
 
 - Fixed background-job completions being lost when IRC-woken subagents finished while owned asynchronous work was still settling.
 - Fixed session reset leaving stale hashline edit snapshots available for later mismatch diagnostics.

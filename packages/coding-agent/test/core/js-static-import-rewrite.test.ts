@@ -278,3 +278,44 @@ describe("wrapCode runtime call-site instrumentation", () => {
 		expect(wrapped.source).not.toContain('__omp_with_call_site__("js:');
 	});
 });
+
+// A raw backtick inside an untagged template literal — a shell command substitution authored
+// into a bash script the cell holds as a string — ends the template early, so the cell dies at
+// parse time. The message must name the offending backtick and the escape form rather than the
+// engine's position-less lexer text, and the hint must never land on an unrelated slip.
+describe("wrapCode stray template backtick diagnostic", () => {
+	const STRAY_BACKTICK_CELL = [
+		"const script = `#!/usr/bin/env bash",
+		"now=`date +%s`",
+		'echo "stamp: $now"',
+		"`;",
+		'await write("/tmp/t1.sh", script);',
+		'"written"',
+	].join("\n");
+
+	it("names the escaping rule when a raw backtick ends a template literal early", async () => {
+		let error: unknown;
+		try {
+			await wrapCode(STRAY_BACKTICK_CELL);
+		} catch (caught) {
+			error = caught;
+		}
+		expect(error).toBeInstanceOf(SyntaxError);
+		const message = (error as SyntaxError).message;
+		// The substitution site is the backtick after `now=`, not the `date` token Babel blames.
+		expect(message).toContain("line 2, column 5");
+		expect(message).toContain("2 | now=`date +%s`");
+		expect(message).toContain("Escape it as \\`");
+	});
+
+	it("leaves the escaped form alone", async () => {
+		const wrapped = await wrapCode(
+			["const script = `#!/usr/bin/env bash", "now=\\`date +%s\\`", 'echo "stamp: $now"', "`;"].join("\n"),
+		);
+		expect(wrapped.source).toContain("now=\\`date +%s\\`");
+	});
+
+	it("does not hint when an unrelated syntax error sits next to a backtick", async () => {
+		await expect(wrapCode("const a = `x` + ;")).resolves.toBeDefined();
+	});
+});
