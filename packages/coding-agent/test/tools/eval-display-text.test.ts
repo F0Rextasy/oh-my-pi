@@ -1,11 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "bun:test";
 import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
-import { TempDir } from "@oh-my-pi/pi-utils";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { TempDir, removeSyncWithRetries } from "@oh-my-pi/pi-utils";
 import { formatOutputNotice } from "@oh-my-pi/pi-tui/tools/output-meta";
 import * as evalIndex from "@oh-my-pi/pi-coding-agent/eval";
 import * as pyKernel from "@oh-my-pi/pi-coding-agent/eval/py/kernel";
 import type { ToolSession } from "@oh-my-pi/pi-coding-agent/tools";
 import { EvalTool } from "@oh-my-pi/pi-coding-agent/tools/eval";
+import { ReadTool } from "@oh-my-pi/pi-coding-agent/tools/read";
 
 function makeSession(): ToolSession {
 	return {
@@ -31,6 +35,17 @@ function baseResult(overrides: Record<string, unknown> = {}) {
 		displayOutputs: [] as unknown[],
 		...overrides,
 	};
+}
+
+function toolText(result: { content: Array<{ type: string; text?: string }> }): string {
+	return result.content
+		.filter(c => c.type === "text" && typeof c.text === "string")
+		.map(c => c.text as string)
+		.join("\n");
+}
+
+function readSession(cwd: string): ToolSession {
+	return { ...makeSession(), cwd } as ToolSession;
 }
 
 const RED_1X1_PNG_BASE64 =
@@ -216,6 +231,91 @@ describe("EvalTool display() text surfacing", () => {
 		expect(text.split("Use :489 to continue").length - 1).toBe(1);
 		expect(text).toContain("ch elided");
 	});
+
+	it("keeps a streaming read's continuation notice when the display preview is capped", async () => {
+		// Past `SNAPSHOT_MAX_BYTES` the read cannot buffer the file, so it
+		// streams a window, never reaches EOF and appends
+		// `[More lines in file (… total; not scanned to EOF). Use :N to
+		// continue]`. That branch sets `details = {}`, so no `truncation`
+		// object survives to hint at the offset either: this tail line is the
+		// only place the model is told how to get the rest of the file.
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "eval-read-stream-"));
+		try {
+			const bigPath = path.join(dir, "big.txt");
+			const chunk = `${"y".repeat(4096)}\n`;
+			const handle = fs.openSync(bigPath, "w");
+			for (let i = 0; i < 6 * 256; i++) fs.writeSync(handle, chunk);
+			fs.closeSync(handle);
+			expect(fs.statSync(bigPath).size).toBeGreaterThan(4 * 1024 * 1024);
+
+			const read = new ReadTool(readSession(dir));
+			const realText = toolText((await read.execute("probe-stream", { path: "big.txt" } as never)) as never);
+			expect(realText).toContain("not scanned to EOF");
+			expect(realText.endsWith("]")).toBe(true);
+
+			vi.spyOn(evalIndex.jsBackend, "execute").mockResolvedValue(
+				baseResult({
+					displayOutputs: [{ type: "json", data: { text: realText, details: {} } }],
+				}) as never,
+			);
+
+			const tool = new EvalTool(makeSession());
+			const result = await tool.execute("call-stream", {
+				language: "js",
+				code: "display(read('big.txt'));",
+			});
+
+			const text = result.content.map(c => (c.type === "text" ? c.text : "")).join("\n");
+			expect(text).toContain("ch elided");
+			expect(text).toContain("not scanned to EOF). Use :");
+			expect(text.split("not scanned to EOF").length - 1).toBe(1);
+		} finally {
+			removeSyncWithRetries(dir);
+		}
+	}, 120_000);
+
+	it("keeps a directory listing's continuation notice when the display preview is capped", async () => {
+		// `read('dir:1-400')` slices the rendered listing and appends
+		// `[N more lines in listing. Use :N to continue]`. Same failure mode:
+		// the notice is the tail of the `text` field, so a head-only cut of
+		// the serialised JSON loses the only paging instruction.
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "eval-read-dir-"));
+		try {
+			for (let d = 0; d < 60; d++) {
+				const sub = path.join(dir, `subdir-${String(d).padStart(3, "0")}`);
+				fs.mkdirSync(sub);
+				// Long enough names that the 400-line slice clears the 8 KB cap.
+				for (let f = 0; f < 12; f++) {
+					const longName = `${f}-${"segment".repeat(6)}-${f}.txt`;
+					fs.writeFileSync(path.join(sub, longName), "x\n");
+				}
+			}
+
+			const read = new ReadTool(readSession(dir));
+			const realText = toolText((await read.execute("probe-dir", { path: ".:1-400" } as never)) as never);
+			expect(realText).toContain("more lines in listing");
+			expect(Buffer.byteLength(realText)).toBeGreaterThan(8000);
+
+			vi.spyOn(evalIndex.jsBackend, "execute").mockResolvedValue(
+				baseResult({
+					displayOutputs: [{ type: "json", data: { text: realText, details: {} } }],
+				}) as never,
+			);
+
+			const tool = new EvalTool(makeSession());
+			const result = await tool.execute("call-dir", {
+				language: "js",
+				code: "display(read('dir:1-400'));",
+			});
+
+			const text = result.content.map(c => (c.type === "text" ? c.text : "")).join("\n");
+			expect(text).toContain("ch elided");
+			expect(text).toContain("more lines in listing. Use :401 to continue]");
+			expect(text.split("more lines in listing").length - 1).toBe(1);
+		} finally {
+			removeSyncWithRetries(dir);
+		}
+	}, 120_000);
 
 	it("keeps oversized display details bounded and spills the full value to the artifact", async () => {
 		using tempDir = TempDir.createSync("@omp-eval-display-");

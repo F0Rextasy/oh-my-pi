@@ -159,9 +159,18 @@ interface FormattedDisplayJson {
 
 /**
  * Matches the serialised form because the separator is the escape `\n`, not a newline, so the line-based helper cannot see it.
+ *
+ * Each alternative is the literal opening of one notice `read` can emit at
+ * `tools/read.ts`: `Showing lines …` (a byte-capped window), `More lines in
+ * file (` (the streaming path on a file past `SNAPSHOT_MAX_BYTES`, which never
+ * reaches EOF and therefore carries no `truncation` object to describe it),
+ * `\d+ more lines in listing` (a directory read sliced by a line selector),
+ * `Some lines truncated to ` (bracket context), and the two grep match/result
+ * limits. A notice the model can act on has to survive the cap even when it
+ * is the last line of a field.
  */
 const SERIALIZED_OUTPUT_NOTICE =
-	/\[(?:Showing |Some lines truncated to |\d+ matches limit reached\. Use limit=\d+ for more|\d+ results limit reached)[^\]\\]*\]/g;
+	/\[(?:Showing |More lines in file \(|\d+ more lines in listing|Some lines truncated to |\d+ matches limit reached\. Use limit=\d+ for more|\d+ results limit reached)[^\]\\]*\]/g;
 
 function collectSerializedNotices(fullText: string): string[] {
 	return fullText.match(SERIALIZED_OUTPUT_NOTICE) ?? [];
