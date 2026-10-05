@@ -27,7 +27,7 @@
 - Auto-retry no longer switches to the fallback chain when Codex's native turn lane rejects live steering after the response streamed reasoning; the turn retries on the same model with the steering message as ordinary input, and the chain is consulted only once no same-model retry is left ([#14242](https://github.com/can1357/oh-my-pi/pull/14242) by [@alphastorm](https://github.com/alphastorm))
 ### Fixed
 
-- Fixed a focused subagent's manual `yield` neither updating its `agent://` artifact nor notifying its parent. A turn the parent, or its focused TUI view, prompted directly bypassed the executor's task monitor, which was attached only to autonomous IRC wake turns; such a yield now registers the parent job and delivers its completion through the same monitor ([#14428](https://github.com/can1357/oh-my-pi/issues/14428) by [@F0Rextasy](https://github.com/F0Rextasy))
+- Fixed a focused subagent's manual `yield` neither updating its `agent://` artifact nor notifying its parent. A turn the parent, or its focused TUI view, prompted directly bypassed the executor's task monitor, which was attached only to autonomous IRC wake turns; such a yield now registers the parent job and delivers its completion through the same monitor ([#14428](https://github.com/can1357/oh-my-pi/issues/14428), [#14442](https://github.com/can1357/oh-my-pi/pull/14442) by [@F0Rextasy](https://github.com/F0Rextasy))
 
 ## [18.6.2] - 2026-10-04
 
