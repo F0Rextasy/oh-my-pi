@@ -1,5 +1,6 @@
 import { clearSubmittedText, restoreDetachedDraft } from "./helpers/draft";
 import * as path from "node:path";
+import { reloadTuiPluginState } from "./builtin-marketplace";
 import { AgentBusyError } from "@oh-my-pi/pi-agent-core";
 import { formatKeyHint } from "@oh-my-pi/pi-tui/app-keybindings";
 import { prompt } from "@oh-my-pi/pi-utils";
@@ -30,7 +31,7 @@ import { CLI_THINKING_LEVELS, getConfiguredThinkingLevelMetadata } from "@oh-my-
 import { noThinkingMessage, resolveThinkingArgument } from "./helpers/effort";
 import { commandConsumed, errorMessage, usage } from "./helpers/parse";
 import { handleSecurityCommand } from "./helpers/security";
-import type { ParsedSlashCommand, SlashCommandSpec, TuiSlashCommandRuntime } from "./types";
+import type { ParsedSlashCommand, SlashCommandRuntime, SlashCommandSpec, TuiSlashCommandRuntime } from "./types";
 
 import {
 	cfgComputerDisplay,
@@ -301,6 +302,65 @@ export function formatTokenCount(value: number): string {
 	return value.toLocaleString();
 }
 
+/**
+ * Shared `/model` body for both dispatchers.
+ *
+ * The TUI dispatcher prefers `handleTui` over `handle`, so the picker shortcut and
+ * this parser cannot both live in anonymous spec fields: the argument path would be
+ * unreachable from the TUI. Both entries point here instead.
+ */
+async function handleModelCommand(command: ParsedSlashCommand, runtime: SlashCommandRuntime) {
+	const { selector, contextWindow } = parseModelArgs(command.args);
+		if (contextWindow !== undefined && !Number.isInteger(contextWindow)) {
+			return usage(
+				`Invalid context window: ${command.args.trim()}. Use /model [<selector>] [--context-window <tokens>].`,
+				runtime,
+			);
+		}
+		if (selector) {
+			const resolved = resolveSessionModelSelector(selector, runtime.session, runtime.settings);
+			const match = resolved.model;
+			if (!match) {
+				return usage(
+					`Unknown model: ${selector}. Use ACP \`session/setModel\` for picker-driven selection or list available models with /model.`,
+					runtime,
+				);
+			}
+			try {
+				await runtime.session.setModel(contextWindow !== undefined ? { ...match, contextWindow } : match);
+				if (resolved.thinkingLevel !== undefined) runtime.session.setThinkingLevel(resolved.thinkingLevel);
+				await runtime.output(
+					`Model set to ${match.provider}/${match.id}${contextWindow !== undefined ? ` with ${contextWindow.toLocaleString()}-token context.` : "."}`,
+				);
+				await runtime.notifyTitleChanged?.();
+				await runtime.notifyConfigChanged?.();
+				return commandConsumed();
+			} catch (err) {
+				return usage(`Failed to set model: ${errorMessage(err)}`, runtime);
+			}
+		}
+		if (contextWindow !== undefined) {
+			const model = runtime.session.model;
+			if (!model) return usage("No model is currently selected.", runtime);
+			try {
+				await runtime.session.setModel({ ...model, contextWindow });
+				await runtime.output(
+					`Context window set to ${contextWindow.toLocaleString()} tokens for ${model.provider}/${model.id} (this session).`,
+				);
+				await runtime.notifyTitleChanged?.();
+				await runtime.notifyConfigChanged?.();
+				return commandConsumed();
+			} catch (err) {
+				return usage(`Failed to set context window: ${errorMessage(err)}`, runtime);
+			}
+		}
+		const model = runtime.session.model;
+		await runtime.output(
+			model ? `Current model: ${model.provider}/${model.id}` : "No model is currently selected.",
+		);
+		return commandConsumed();
+}
+
 export const BUILTIN_MODE_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpec> = [
 	{
 		name: "security",
@@ -482,64 +542,31 @@ export const BUILTIN_MODE_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpec> = [
 		name: "model",
 		aliases: ["models"],
 		icon: "model",
+		allowArgs: true,
 		description: "Switch model for this session",
 		acpDescription: "Show current model selection",
 		getTuiAutocompleteDescription: runtime => {
 			const model = runtime.ctx.session.model;
 			return model ? `Model: ${model.provider}/${model.id}` : "Model: none selected";
 		},
-		handle: async (command, runtime) => {
-			const { selector, contextWindow } = parseModelArgs(command.args);
-			if (contextWindow !== undefined && !Number.isInteger(contextWindow)) {
-				return usage(
-					`Invalid context window: ${command.args.trim()}. Use /model [<selector>] [--context-window <tokens>].`,
-					runtime,
-				);
+		handle: handleModelCommand,
+		handleTui: (command, runtime) => {
+			// Anything with arguments has to reach the shared handler, otherwise
+			// `/model --context-window 400k` drops the flag and opens the picker.
+			if (command.args.trim()) {
+				const ctx = runtime.ctx;
+				return handleModelCommand(command, {
+					session: ctx.session,
+					sessionManager: ctx.sessionManager,
+					settings: ctx.settings,
+					cwd: ctx.sessionManager.getCwd(),
+					output: (text: string) => {
+						ctx.showStatus(text);
+					},
+					refreshCommands: () => ctx.refreshSlashCommandState(),
+					reloadPlugins: () => reloadTuiPluginState(ctx),
+				});
 			}
-			if (selector) {
-				const resolved = resolveSessionModelSelector(selector, runtime.session, runtime.settings);
-				const match = resolved.model;
-				if (!match) {
-					return usage(
-						`Unknown model: ${selector}. Use ACP \`session/setModel\` for picker-driven selection or list available models with /model.`,
-						runtime,
-					);
-				}
-				try {
-					await runtime.session.setModel(contextWindow !== undefined ? { ...match, contextWindow } : match);
-					if (resolved.thinkingLevel !== undefined) runtime.session.setThinkingLevel(resolved.thinkingLevel);
-					await runtime.output(
-						`Model set to ${match.provider}/${match.id}${contextWindow !== undefined ? ` with ${contextWindow.toLocaleString()}-token context.` : "."}`,
-					);
-					await runtime.notifyTitleChanged?.();
-					await runtime.notifyConfigChanged?.();
-					return commandConsumed();
-				} catch (err) {
-					return usage(`Failed to set model: ${errorMessage(err)}`, runtime);
-				}
-			}
-			if (contextWindow !== undefined) {
-				const model = runtime.session.model;
-				if (!model) return usage("No model is currently selected.", runtime);
-				try {
-					await runtime.session.setModel({ ...model, contextWindow });
-					await runtime.output(
-						`Context window set to ${contextWindow.toLocaleString()} tokens for ${model.provider}/${model.id} (this session).`,
-					);
-					await runtime.notifyTitleChanged?.();
-					await runtime.notifyConfigChanged?.();
-					return commandConsumed();
-				} catch (err) {
-					return usage(`Failed to set context window: ${errorMessage(err)}`, runtime);
-				}
-			}
-			const model = runtime.session.model;
-			await runtime.output(
-				model ? `Current model: ${model.provider}/${model.id}` : "No model is currently selected.",
-			);
-			return commandConsumed();
-		},
-		handleTui: (_command, runtime) => {
 			runtime.ctx.showModelSelector();
 			clearSubmittedText(runtime);
 		},
