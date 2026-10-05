@@ -11,10 +11,10 @@ import type {
 	ToolResultMessage,
 	UserMessage,
 } from "@oh-my-pi/pi-ai";
-import { isEnoent, isRecord } from "@oh-my-pi/pi-utils";
-import { describeReadDirFailure } from "../utils/readdir";
+import { isRecord } from "@oh-my-pi/pi-utils";
+import { describeReadDirFailure, readDirOutcome } from "../utils/readdir";
 import { readForeignJsonRecords } from "./foreign-session-jsonl";
-import type { ForeignSessionInfo, ForeignSessionStore } from "./foreign-session-store";
+import type { ForeignSessionInfo, ForeignSessionListOptions, ForeignSessionStore } from "./foreign-session-store";
 import type { CompactionEntry, ModelChangeEntry, SessionEntry, SessionMessageEntry } from "./session-entries";
 import { SessionManager } from "./session-manager";
 
@@ -185,20 +185,19 @@ async function readJsonLines(filePath: string): Promise<Record<string, unknown>[
 	return records;
 }
 
-async function rolloutFiles(directory: string): Promise<string[]> {
-	let entries: fs.Dirent[];
-	try {
-		entries = await fs.promises.readdir(directory, { withFileTypes: true });
-	} catch (error) {
-		// An absent rollout tree is an ordinary empty result; an unreadable one
-		// is not, and must not read as "this Codex install has no sessions".
-		if (isEnoent(error)) return [];
-		throw new Error(describeReadDirFailure(directory, error as NodeJS.ErrnoException));
+async function rolloutFiles(directory: string, warn: (message: string) => void): Promise<string[]> {
+	const scanned = await readDirOutcome(directory);
+	// A subtree that cannot be enumerated is a gap in the listing, not the whole
+	// listing, so it is reported and the readable siblings are still returned.
+	if (scanned.status === "error") {
+		warn(describeReadDirFailure(directory, scanned.error));
+		return [];
 	}
+	if (scanned.status === "missing") return [];
 	const files: string[] = [];
-	for (const entry of entries) {
+	for (const entry of scanned.entries) {
 		const child = path.join(directory, entry.name);
-		if (entry.isDirectory()) files.push(...(await rolloutFiles(child)));
+		if (entry.isDirectory()) files.push(...(await rolloutFiles(child, warn)));
 		else if (entry.isFile() && entry.name.endsWith(".jsonl")) files.push(child);
 	}
 	return files;
@@ -209,19 +208,16 @@ function rolloutId(filePath: string): string {
 	return match?.[1] ?? path.basename(filePath, ".jsonl");
 }
 
-async function stateDatabasePath(root: string): Promise<string | undefined> {
-	let names: string[];
-	try {
-		names = await fs.promises.readdir(root);
-	} catch (error) {
-		// An absent Codex root is an ordinary "no sessions" result. Anything else
-		// means the state index could not be consulted, so say so rather than
-		// falling through the caller as an empty store.
-		if (isEnoent(error)) return undefined;
-		throw new Error(describeReadDirFailure(root, error as NodeJS.ErrnoException));
+async function stateDatabasePath(root: string, warn: (message: string) => void): Promise<string | undefined> {
+	const scanned = await readDirOutcome(root);
+	if (scanned.status !== "ok") {
+		// Without the index the rollout tree is still worth scanning, so this
+		// degrades to that path rather than failing the listing.
+		if (scanned.status === "error") warn(describeReadDirFailure(root, scanned.error));
+		return undefined;
 	}
-	return names
-		.map(name => ({ name, version: /^state_(\d+)\.sqlite$/.exec(name) }))
+	return scanned.entries
+		.map(entry => ({ name: entry.name, version: /^state_(\d+)\.sqlite$/.exec(entry.name) }))
 		.filter(item => item.version !== null)
 		.sort((left, right) => Number(right.version?.[1]) - Number(left.version?.[1]))
 		.map(item => path.join(root, item.name))
@@ -478,8 +474,9 @@ export class CodexSessionStore implements ForeignSessionStore {
 	}
 
 	/** Lists Codex sessions from its state index without reading transcript bodies. */
-	async list(): Promise<ForeignSessionInfo[]> {
-		const databasePath = await stateDatabasePath(this.#root);
+	async list(options?: ForeignSessionListOptions): Promise<ForeignSessionInfo[]> {
+		const warn = (message: string) => options?.warn?.(message);
+		const databasePath = await stateDatabasePath(this.#root, warn);
 		if (databasePath) {
 			try {
 				const database = new Database(databasePath, { readonly: true });
@@ -523,7 +520,7 @@ export class CodexSessionStore implements ForeignSessionStore {
 
 		const index = await loadIndex(this.#root);
 		const roots = ["sessions", ".sessions", "archived_sessions"].map(name => path.join(this.#root, name));
-		const files = (await Promise.all(roots.map(rolloutFiles))).flat();
+		const files = (await Promise.all(roots.map(root => rolloutFiles(root, warn)))).flat();
 		const sessions: ForeignSessionInfo[] = [];
 		for (const filePath of files) {
 			const first = await firstJsonRecord(filePath);

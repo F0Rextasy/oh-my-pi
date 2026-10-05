@@ -1,12 +1,14 @@
 /**
  * Contracts: a directory scan that cannot be read must never report the same
- * result as a directory that is genuinely empty (#11476).
+ * result as a directory that is genuinely empty (#11476), and must never cost
+ * the caller the entries it could read.
  *
- * - An unreadable session container surfaces to the caller as a failure, not as
- *   "no sessions found" with exit 0.
+ * - An unreadable session directory is reported as a warning next to the
+ *   partial listing, not as a hard failure that discards it.
  * - An unreadable advisor transcript directory reports through the caller's
  *   warning channel.
- * - An absent directory still reports empty and stays quiet.
+ * - An absent directory, or one that is actually a file, still reports empty
+ *   and stays quiet, in every store.
  * - Memory pruning never issues `fs.rm` on a subtree it failed to read.
  *
  * Every case drives the real entry point and asserts on what the caller or user
@@ -74,15 +76,54 @@ describe("Claude session store readdir failures", () => {
 		return path.dirname(path.dirname(root));
 	}
 
-	it("surfaces an unreadable projects container instead of reporting zero sessions", async () => {
-		const root = await claudeRoot();
+	it("keeps the readable project directories and warns about the ones it could not read", async () => {
+		const root = path.join(await tempDir("claude-partial"), "projects");
+		for (const project of ["-home-a", "-home-b", "-home-c"]) {
+			const dir = path.join(root, project);
+			await fs.mkdir(dir, { recursive: true });
+			await Bun.write(path.join(dir, `${project}.jsonl`), '{"type":"user"}\n');
+		}
+		failReaddirFor(path.join(root, "-home-b"), "EACCES");
+
+		const warnings: string[] = [];
+		const sessions = await new ClaudeSessionStore(path.dirname(root)).list({
+			warn: message => warnings.push(message),
+		});
+
+		// One unreadable directory must not cost the user the other two: a
+		// partial listing returned with a warning beats no listing at all, which
+		// is what main does and what this branch used to regress to.
+		expect(sessions.map(session => session.id)).toEqual(["-home-c", "-home-a"]);
+		expect(warnings).toHaveLength(1);
+		expect(warnings[0]).toContain("Could not read directory");
+		expect(warnings[0]).toContain("EACCES");
+	});
+
+	it("warns about an unreadable container without losing the other spelling", async () => {
+		const root = path.join(await tempDir("claude-two-containers"), "root");
+		await fs.mkdir(path.join(root, "projects"), { recursive: true });
+		const readable = path.join(root, ".projects", "-home-d");
+		await fs.mkdir(readable, { recursive: true });
+		await Bun.write(path.join(readable, "dddddddd-1111-4111-8111-111111111111.jsonl"), '{"type":"user"}\n');
 		failReaddirFor(path.join(root, "projects"), "EACCES");
 
-		const store = new ClaudeSessionStore(root);
-		// The caller in main.ts and the session selector both catch this and
-		// render it, which is what keeps an unreadable store from reporting
-		// "No claude sessions found" and exiting 0.
-		await expect(store.list()).rejects.toThrow(/Could not read directory/);
+		const warnings: string[] = [];
+		const sessions = await new ClaudeSessionStore(root).list({ warn: message => warnings.push(message) });
+
+		expect(sessions.map(session => session.id)).toEqual(["dddddddd-1111-4111-8111-111111111111"]);
+		expect(warnings).toHaveLength(1);
+		expect(warnings[0]).toContain("Could not read directory");
+	});
+
+	it("treats a projects path that is a regular file as absent, like the codex store", async () => {
+		// readDirOutcome calls ENOTDIR "missing" because a path component that is
+		// a file cannot hold children either, so both stores must agree here.
+		const root = await tempDir("claude-projects-is-a-file");
+		await Bun.write(path.join(root, "projects"), "I am a file");
+
+		const warnings: string[] = [];
+		expect(await new ClaudeSessionStore(root).list({ warn: m => warnings.push(m) })).toEqual([]);
+		expect(warnings).toEqual([]);
 	});
 
 	it("reports zero sessions and stays quiet when the projects directory is absent", async () => {
@@ -102,12 +143,44 @@ describe("Claude session store readdir failures", () => {
 });
 
 describe("Codex session store readdir failures", () => {
-	it("surfaces an unreadable state root instead of reporting zero sessions", async () => {
+	it("keeps the readable rollout tree and warns about the one it could not read", async () => {
 		const root = await tempDir("codex-store");
-		await fs.mkdir(path.join(root, "sessions"), { recursive: true });
+		const sessions = path.join(root, "sessions");
+		await fs.mkdir(path.join(sessions, "nested"), { recursive: true });
+		await Bun.write(path.join(sessions, "nested", "aaaaaaaa-1111-4111-8111-111111111111.jsonl"), '{"type":"user"}\n');
+		failReaddirFor(path.join(sessions, "nested"), "EMFILE");
+
+		const warnings: string[] = [];
+		expect(await new CodexSessionStore(root).list({ warn: m => warnings.push(m) })).toEqual([]);
+		expect(warnings).toHaveLength(1);
+		expect(warnings[0]).toContain("Could not read directory");
+		expect(warnings[0]).toContain("EMFILE");
+	});
+
+	it("warns about an unreadable state root and still scans the rollout tree", async () => {
+		const root = await tempDir("codex-state-root");
+		const sessions = path.join(root, "sessions");
+		await fs.mkdir(sessions, { recursive: true });
+		const rollout =
+			'{"type":"session_meta","payload":{"id":"aaaaaaaa-1111-4111-8111-111111111111","cwd":"C:/work"}}\n';
+		await Bun.write(path.join(sessions, "rollout.jsonl"), rollout);
 		failReaddirFor(root, "EACCES");
 
-		await expect(new CodexSessionStore(root).list()).rejects.toThrow(/Could not read directory/);
+		const warnings: string[] = [];
+		const listed = await new CodexSessionStore(root).list({ warn: m => warnings.push(m) });
+
+		// Losing the state index costs the index, not the sessions on disk.
+		expect(listed.map(session => session.id)).toEqual(["aaaaaaaa-1111-4111-8111-111111111111"]);
+		expect(warnings).toHaveLength(1);
+		expect(warnings[0]).toContain("EACCES");
+	});
+
+	it("treats a root that is a regular file as absent, like the claude store", async () => {
+		const root = await tempDir("codex-root-is-a-file");
+		await Bun.write(path.join(root, "marker"), "x");
+		const warnings: string[] = [];
+		expect(await new CodexSessionStore(root).list({ warn: m => warnings.push(m) })).toEqual([]);
+		expect(warnings).toEqual([]);
 	});
 
 	it("reports zero sessions and stays quiet when the codex root is absent", async () => {

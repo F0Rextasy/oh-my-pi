@@ -602,7 +602,6 @@ export class SelectorController {
 				() => this.ctx.session.effectiveExtensionRoots,
 				activeModelPattern,
 				defaultModelPattern,
-				message => this.ctx.session.emitNotice("warning", message, "Agents"),
 			),
 			{ onCancel: () => done() },
 		);
@@ -1585,7 +1584,7 @@ export class SelectorController {
 			const store = createForeignSessionStore(source);
 			let foreignSessions: ForeignSessionInfo[];
 			try {
-				foreignSessions = await store.list();
+				foreignSessions = await store.list({ warn: message => this.ctx.showWarning(message) });
 			} catch (error) {
 				this.ctx.showError(
 					`Failed to list ${sourceName} sessions: ${error instanceof Error ? error.message : String(error)}`,
