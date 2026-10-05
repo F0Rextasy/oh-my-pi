@@ -960,7 +960,14 @@ export class SessionTools {
 						return await target.execute(toolCallId, args as never, signal, onUpdate, approvedCtx);
 					}
 					if (persisted === "reject_always") {
-						throw new ToolError(`Tool call rejected by user (preference)`);
+						// Name what the remembered decision covers. Without it the message is
+						// indistinguishable from a fresh refusal, so a model that was told to
+						// stop retrying keeps retrying the same command.
+						throw new ToolError(
+							permissionIntent.preferenceScope
+								? `Tool call rejected by user (preference: ${permissionIntent.preferenceScope})`
+								: `Tool call rejected by user (preference)`,
+						);
 					}
 					if (signal?.aborted) {
 						throw new ToolAbortError("Permission request cancelled");

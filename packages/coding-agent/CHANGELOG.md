@@ -157,6 +157,7 @@
 - Advisor concerns and notes now reach an active same-run continuation after a terminal answer instead of being retained unnecessarily.
 
 ### Fixed
+- The ACP permission gate cached one decision per tool, so a single "Always reject" denied every later `bash` call in the session, including read-only commands the user never saw; decisions are now keyed on the command and a remembered denial names the command it applies to, so the model stops retrying ([#14305](https://github.com/can1357/oh-my-pi/issues/14305)).
 
 - Fixed background-job completions being lost when IRC-woken subagents finished while owned asynchronous work was still settling.
 - Fixed session reset leaving stale hashline edit snapshots available for later mismatch diagnostics.
