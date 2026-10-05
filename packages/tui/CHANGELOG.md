@@ -5,6 +5,9 @@
 ### Fixed
 
 - Fixed hold-Space push-to-talk stopping the instant recording began (showing "No speech detected.") when opening the microphone briefly froze the UI ([#14463](https://github.com/can1357/oh-my-pi/pull/14463) by [@pgkt04](https://github.com/pgkt04))
+### Added
+
+- Added the `app.images.retransmit` action (unbound by default), which re-sends Kitty image payloads the terminal may have dropped, such as those emitted while a tmux window was hidden.
 
 ## [18.6.1] - 2026-10-04
 
