@@ -205,15 +205,23 @@ function byteLength(text: string): number {
  */
 function capNoticeTail(notices: readonly string[], budgetBytes: number): string {
 	if (notices.length === 0 || budgetBytes <= 0) return "";
-	let kept = notices;
-	while (kept.length > 1 && byteLength(kept.join("\n")) > budgetBytes) {
-		kept = kept.slice(0, -1);
+	// Measure the prefix in one pass rather than dropping the last notice and
+	// re-joining: the notice text is model-controlled, so a value can carry
+	// thousands of them and the join-per-drop loop was quadratic in that count.
+	// One notice is kept whatever it weighs, so the tail never reads as empty.
+	let kept = 1;
+	let joinedBytes = byteLength(notices[0]!);
+	while (kept < notices.length) {
+		const nextBytes = joinedBytes + 1 + byteLength(notices[kept]!);
+		if (nextBytes > budgetBytes) break;
+		joinedBytes = nextBytes;
+		kept++;
 	}
-	const dropped = notices.length - kept.length;
+	const dropped = notices.length - kept;
 	const marker = dropped > 0 ? `\n[…${dropped} more notices elided…]` : "";
 	const room = budgetBytes - byteLength(marker);
 	if (room <= 0) return marker;
-	return `${truncateHeadBytes(kept.join("\n"), room).text}${marker}`;
+	return `${truncateHeadBytes(notices.slice(0, kept).join("\n"), room).text}${marker}`;
 }
 
 /**
@@ -224,10 +232,11 @@ function capNoticeTail(notices: readonly string[], budgetBytes: number): string 
  */
 function formatCappedPreview(fullText: string): string {
 	const headBudget = MAX_DISPLAY_TEXT_BYTES - DISPLAY_ELISION_RESERVE_BYTES;
+	// Scanned once for the whole settle: `fullText` is unbounded and the loop
+	// below re-decides the cut several times.
+	const notices = collectSerializedNotices(fullText);
 	const droppedAfter = (cut: number) =>
-		collectSerializedNotices(fullText)
-			.filter(notice => notice.index >= cut)
-			.map(notice => notice.text);
+		notices.filter(notice => notice.index >= cut).map(notice => notice.text);
 	let head = truncateHeadBytes(fullText, headBudget);
 	let noticeTail = capNoticeTail(droppedAfter(head.text.length), NOTICE_TAIL_BUDGET_BYTES);
 	// The tail shares the budget with the head, so reserving its bytes shortens
