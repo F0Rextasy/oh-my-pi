@@ -1662,16 +1662,6 @@ export function buildMiseUpdateEnv(
 	return { ...base, MISE_MINIMUM_RELEASE_AGE: "0s" };
 }
 
-/**
- * `omp update` inherits the TTY it was launched from, so a Homebrew prompt
- * blocks the update indefinitely. `NONINTERACTIVE` is Homebrew's opt-out.
- */
-export function buildHomebrewUpdateEnv(
-	base: Record<string, string | undefined> = process.env,
-): Record<string, string | undefined> {
-	return { ...base, HOMEBREW_NO_ENV_HINTS: "1", NONINTERACTIVE: "1" };
-}
-
 export function buildMiseForceInstallArgs(expectedVersion: string): string[] {
 	return ["install", "--force", `${MISE_TOOL}@${expectedVersion}`];
 }
@@ -1933,25 +1923,38 @@ export async function updateViaManager(
 	);
 }
 
-async function updateViaHomebrew(expectedVersion: string, force: boolean): Promise<void> {
-	const env = buildHomebrewUpdateEnv();
+/**
+ * Run the two `brew` commands of the Homebrew update path.
+ *
+ * `omp update` runs inside the terminal the user launched it from, and Bun's
+ * `$` hands the child that same TTY as stdin. Homebrew treats a TTY stdin as
+ * licence to stop and ask, so `brew update` blocks forever on a prompt that
+ * nothing in this non-interactive CLI will ever answer. Homebrew has no
+ * environment opt-out for that: `NONINTERACTIVE` is read by Homebrew's
+ * `install.sh`, never by the `brew` executable. Redirecting stdin from
+ * /dev/null is what changes it, because brew only prompts when stdin is a
+ * terminal.
+ *
+ * Exported so a test can put a `brew` shim on PATH and assert on the stdin the
+ * spawned child actually receives.
+ */
+export async function runHomebrewUpdateCommands(force: boolean): Promise<void> {
 	console.log(chalk.dim("Updating Homebrew formulae..."));
-	// `NONINTERACTIVE` (set by buildHomebrewUpdateEnv) is Homebrew's own opt-out
-	// for prompting. Bun's `$` exposes stdin as a getter rather than a chainable
-	// option, so there is no per-command stdin to close here — the env is the
-	// supported lever, and it is the one the mise sibling already uses.
-	const update = await $`brew update`.env(env).nothrow();
+	const update = await $`brew update < /dev/null`.nothrow();
 	if (update.exitCode !== 0) {
 		throw new Error(`brew update failed with exit code ${update.exitCode}`);
 	}
 
 	console.log(chalk.dim("Updating via Homebrew..."));
 	const args = buildHomebrewUpdateArgs(force);
-	const result = await $`brew ${args}`.env(env).nothrow();
+	const result = await $`brew ${args} < /dev/null`.nothrow();
 	if (result.exitCode !== 0) {
 		throw new Error(`brew ${args[0]} failed with exit code ${result.exitCode}`);
 	}
+}
 
+async function updateViaHomebrew(expectedVersion: string, force: boolean): Promise<void> {
+	await runHomebrewUpdateCommands(force);
 	await printVerification(expectedVersion);
 }
 

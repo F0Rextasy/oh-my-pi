@@ -8,7 +8,6 @@ import * as updateCli from "@oh-my-pi/pi-coding-agent/cli/update-cli";
 import {
 	buildBunInstallArgs,
 	buildHomebrewUpdateArgs,
-	buildHomebrewUpdateEnv,
 	buildMiseForceInstallArgs,
 	buildMiseUpdateEnv,
 	buildMiseUpgradeArgs,
@@ -583,19 +582,91 @@ describe("update-cli package manager commands", () => {
 		expect(buildHomebrewUpdateArgs(true)).toEqual(["reinstall", "can1357/tap/omp"]);
 	});
 
-	it("runs the Homebrew path unattended so a prompt cannot block the update", () => {
-		// `omp update` inherits the TTY, and `brew` may stop to ask before it
-		// touches anything. The sibling mise path already builds an env for this;
-		// Homebrew did not, so the update hung with no output.
-		expect(buildHomebrewUpdateEnv({ PATH: "/bin" })).toEqual({
-			PATH: "/bin",
-			HOMEBREW_NO_ENV_HINTS: "1",
-			NONINTERACTIVE: "1",
+	it("spawns brew with a non-TTY stdin so a Homebrew prompt cannot block the update", async () => {
+		// `omp update` runs inside the terminal the user launched it from, and Bun's
+		// `$` hands the child that same TTY. Homebrew only stops to ask when stdin is
+		// a terminal, and nothing in this non-interactive CLI will ever answer, so
+		// `brew update` hung with no output. `NONINTERACTIVE` is read by Homebrew's
+		// install.sh, not by the brew executable, so an env var cannot fix this.
+		//
+		// The check runs in a child process rather than here, because "did brew
+		// inherit our stdin" is only observable against a known stdin. The runner
+		// gets a pipe carrying a sentinel; the brew shim reports how much of it
+		// reached it. Inheriting passes the sentinel through, redirecting from
+		// /dev/null cannot, on any host and whatever the test runner's own stdin is.
+		const binDir = await makeTempDir();
+		const reportPath = path.join(binDir, "stdin-report.jsonl");
+		const modulePath = path.resolve(import.meta.dir, "..", "src", "cli", "update-cli.ts");
+
+		// Written as files rather than `bun -e`: cmd.exe mangles a quoted one-liner
+		// badly enough that the shim never runs.
+		await fs.writeFile(
+			path.join(binDir, "probe.cjs"),
+			[
+				"const fs = require('node:fs');",
+				"let inherited = '';",
+				"try {",
+				"  const buf = Buffer.alloc(4096);",
+				"  const n = fs.readSync(0, buf, 0, buf.length, 0);",
+				"  inherited = buf.subarray(0, n).toString();",
+				"} catch {}",
+				"fs.appendFileSync(",
+				"  process.env.OMP_BREW_STDIN_REPORT,",
+				"  JSON.stringify({ argv: process.argv.slice(2), isTTY: require('node:tty').isatty(0), inherited }) + '\\n',",
+				");",
+			].join("\n"),
+			"utf8",
+		);
+		if (process.platform === "win32") {
+			await fs.writeFile(path.join(binDir, "brew.cmd"), '@echo off\r\nbun "%~dp0probe.cjs" %*\r\n', "utf8");
+		} else {
+			await fs.writeFile(path.join(binDir, "brew"), `#!/bin/sh\nexec bun "$(dirname "$0")/probe.cjs" "$@"\n`, {
+				mode: 0o755,
+			});
+		}
+
+		const runnerPath = path.join(binDir, "runner.ts");
+		await fs.writeFile(
+			runnerPath,
+			[
+				`import { runHomebrewUpdateCommands } from ${JSON.stringify(modulePath)};`,
+				"await runHomebrewUpdateCommands(false);",
+			].join("\n"),
+			"utf8",
+		);
+
+		const sentinel = "OMP-STDIN-SENTINEL";
+		const child = Bun.spawn([process.execPath, runnerPath], {
+			env: {
+				...process.env,
+				PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ""}`,
+				OMP_BREW_STDIN_REPORT: reportPath,
+			},
+			stdin: "pipe",
+			stdout: "pipe",
+			stderr: "pipe",
 		});
-		// Overrides a value the caller set deliberately — the point is that the
-		// command cannot end up interactive.
-		expect(buildHomebrewUpdateEnv({ HOMEBREW_NO_ENV_HINTS: "0" }).HOMEBREW_NO_ENV_HINTS).toBe("1");
-	});
+		child.stdin.write(sentinel);
+		await child.stdin.end();
+		const [stdout, stderr, exitCode] = await Promise.all([
+			new Response(child.stdout).text(),
+			new Response(child.stderr).text(),
+			child.exited,
+		]);
+		expect(`${stdout}${stderr}`).not.toContain("runHomebrewUpdateCommands");
+		expect(exitCode).toBe(0);
+
+		const lines = (await fs.readFile(reportPath, "utf8")).trim().split("\n").filter(Boolean);
+		expect(lines.length).toBe(2);
+		const calls = lines.map(line => JSON.parse(line) as { argv: string[]; isTTY: boolean; inherited: string });
+		expect(calls[0].argv).toEqual(["update"]);
+		expect(calls[1].argv).toEqual(["upgrade", "can1357/tap/omp"]);
+		for (const call of calls) {
+			expect(call.isTTY).toBe(false);
+			expect(call.inherited).not.toContain(sentinel);
+		}
+		// Two interpreter startups per brew call on Windows land near the 5s default.
+	}, 60000);
 
 	it("targets the mise GitHub backend and overrides release-age settings for attended updates", () => {
 		expect(buildMiseUpgradeArgs()).toEqual(["upgrade", "github:can1357/oh-my-pi", "--bump", "--before", "0s"]);
