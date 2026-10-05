@@ -304,20 +304,7 @@ export function parseRateLimitReason(errorMessage: string): RateLimitReason {
 	if (isDetailFreeResourceExhaustedBoilerplate(errorMessage)) {
 		return "MODEL_CAPACITY_EXHAUSTED";
 	}
-	if (
-		lower.includes("exhausted") ||
-		lower.includes("quota") ||
-		lower.includes("usage limit") ||
-		// xAI SuperGrok: HTTP 403 "run out of credits" / spending-limit is an
-		// account-local cap — rotate, don't treat as auth failure.
-		lower.includes("run out of credits") ||
-		lower.includes("out of credits") ||
-		lower.includes("spending-limit") ||
-		lower.includes("spending limit") ||
-		lower.includes("access_terminated_error") ||
-		INSUFFICIENT_BALANCE_PATTERN.test(errorMessage) ||
-		CREDITS_EXHAUSTED_PATTERN.test(errorMessage)
-	) {
+	if (matchesAccountQuotaSignal(errorMessage)) {
 		return "QUOTA_EXHAUSTED";
 	}
 
@@ -365,11 +352,45 @@ const USAGE_LIMIT_PATTERN =
  * parenthetical "(e.g. check quota)" is the generic gRPC status hint, not a
  * provider-stated exhaustion, so the bare boilerplate is transient capacity
  * pressure rather than proof of a spent account quota.
+ *
+ * "No signal" is tested with matchesAccountQuotaSignal, the same matcher the
+ * ladder below uses, so a real account-scoped detail such as "Credits
+ * exhausted." keeps its QUOTA_EXHAUSTED verdict instead of being swallowed by
+ * the shortcut and stranding the credential on short retries.
  */
 function isDetailFreeResourceExhaustedBoilerplate(errorMessage: string): boolean {
 	if (!RESOURCE_EXHAUSTED_BOILERPLATE_PATTERN.test(errorMessage)) return false;
 	const withoutBoilerplate = errorMessage.replace(RESOURCE_EXHAUSTED_BOILERPLATE_PATTERN, "");
-	return !/quota|usage limit|insufficient/i.test(withoutBoilerplate);
+	return !matchesAccountQuotaSignal(withoutBoilerplate);
+}
+
+/**
+ * Account-scoped quota wording that the ladder below the detail-free
+ * boilerplate shortcut treats as authoritative exhaustion. Shared with
+ * isDetailFreeResourceExhaustedBoilerplate so the shortcut can only fire when
+ * none of these match: a signal the classifier recognises elsewhere must also
+ * prevent the transient shortcut, otherwise the same body is read as a spent
+ * quota or as transient capacity depending on which arm happens to run first.
+ */
+function matchesAccountQuotaSignal(errorMessage: string): boolean {
+	// gRPC/Connect end-streams repeat the status in the body ("Connect error
+	// resource_exhausted: resource exhausted"); strip both forms so a leftover
+	// "exhausted" is not read as a provider-stated account exhaustion.
+	const lower = errorMessage.toLowerCase().replace(RESOURCE_EXHAUSTED_PATTERN, "");
+	return (
+		lower.includes("exhausted") ||
+		lower.includes("quota") ||
+		lower.includes("usage limit") ||
+		// xAI SuperGrok: HTTP 403 "run out of credits" / spending-limit is an
+		// account-local cap — rotate, don't treat as auth failure.
+		lower.includes("run out of credits") ||
+		lower.includes("out of credits") ||
+		lower.includes("spending-limit") ||
+		lower.includes("spending limit") ||
+		lower.includes("access_terminated_error") ||
+		INSUFFICIENT_BALANCE_PATTERN.test(errorMessage) ||
+		CREDITS_EXHAUSTED_PATTERN.test(errorMessage)
+	);
 }
 
 /**
@@ -472,7 +493,7 @@ export function matchesUsageLimitText(errorMessage: string): boolean {
 	const structuredReason = parseGoogleRpcRateLimitReason(errorMessage);
 	if (structuredReason !== undefined) return isQuotaExhaustedReason(structuredReason);
 	if (isDashScopeTokenLimitText(errorMessage)) return false;
-// Detail-free RESOURCE_EXHAUSTED boilerplate (#12655): the `resource.?exhausted`
+	// Detail-free RESOURCE_EXHAUSTED boilerplate (#12655): the `resource.?exhausted`
 	// arm of USAGE_LIMIT_PATTERN would otherwise flag the stock gRPC description
 	// as an account quota cap. The bare boilerplate is transient, so exclude it
 	// here as well — a body carrying a real quota/reset/balance/usage signal

@@ -94,6 +94,28 @@ describe("antigravity detail-free 429 classification", () => {
 		expect(isUsageLimitOutcome(429, withQuota)).toBe(true);
 	});
 
+	// The detail-free shortcut must mean "no account-scoped signal anywhere in
+	// the body", not "no signal except the three words the first guard listed".
+	// Each detail below is a real per-account exhaustion the ladder recognises;
+	// swallowing it under the boilerplate strands the credential on short
+	// retries instead of rotating it.
+	const ACCOUNT_SCOPED_DETAILS: ReadonlyArray<readonly [string, string]> = [
+		["credits exhausted", "Credits exhausted."],
+		["exceeded credits", "You exceeded your available credits for this project."],
+		["prepaid balance", "Your prepaid balance is exhausted."],
+		["spend limit", "Your project has exceeded its monthly spending cap."],
+		["account-scoped rate limit", "Your account rate limit has been reached."],
+		["quota reset", "Your quota will reset at 2026-10-06 20:00."],
+	];
+
+	for (const [label, detail] of ACCOUNT_SCOPED_DETAILS) {
+		it(`keeps the ${label} signal authoritative alongside the boilerplate`, () => {
+			const message = `Cloud Code Assist API error (429): Resource has been exhausted (e.g. check quota). ${detail}`;
+			expect(parseRateLimitReason(message)).toBe("QUOTA_EXHAUSTED");
+			expect(isUsageLimitOutcome(429, message)).toBe(true);
+		});
+	}
+
 	it("classifies the surfaced provider error as transient and retriable", () => {
 		const error = new AIError.GeminiCliApiError(`Cloud Code Assist API error (429): ${DETAIL_FREE_429_BODY}`, 429);
 		expect(AIError.isUsageLimit(error)).toBe(false);
