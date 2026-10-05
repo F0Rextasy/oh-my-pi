@@ -19,6 +19,7 @@
 - Large mermaid flowcharts and state diagrams render much faster while a response streams ([#14454](https://github.com/can1357/oh-my-pi/pull/14454) by [@H4vC](https://github.com/H4vC))
 
 ### Fixed
+- A semicolon-delimited list of internal URLs was treated as one URI and matched neither, because the splitter did not know which entries were routed URLs; grep now passes the same routed-url predicate `read` uses, and rejects a `:conflicts` selector on an external URL instead of requesting it as a path segment ([#14396](https://github.com/can1357/oh-my-pi/pull/14396)).
 
 - Fixed the `/usage` sheet in Tern missing the Close button the other report sheets have ([#14455](https://github.com/can1357/oh-my-pi/pull/14455) by [@H4vC](https://github.com/H4vC)).
 - Fixed cancelling a bash command on Windows sometimes terminating an unrelated program ([#14454](https://github.com/can1357/oh-my-pi/pull/14454) by [@H4vC](https://github.com/H4vC))
