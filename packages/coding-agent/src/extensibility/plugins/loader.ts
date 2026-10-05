@@ -319,7 +319,19 @@ function resolveManifestEntryFiles(joined: string, expandDirectory: boolean): st
 	let stats: fs.Stats;
 	try {
 		stats = fs.statSync(joined);
-	} catch {
+	} catch (err) {
+		// A missing entry is this function's documented "nothing loadable
+		// here" answer and stays quiet: `resolvePluginManifestEntries` reports
+		// it as a null resolvedPath, which is what install-time validation and
+		// the /plugins listing read. An entry the process is not allowed to
+		// read is a different condition with the same shape of outcome — the
+		// plugin still loads and contributes no module for this entry — but it
+		// is not the user's to discover by absence, and unlike the
+		// unreadable-root skips above it had no diagnostic at all. Same skip,
+		// spoken aloud.
+		if (isUnreadableRoot(err)) {
+			logger.warn("plugins: skipping unreadable manifest entry", { path: joined });
+		}
 		return [];
 	}
 	if (!stats.isDirectory()) {
