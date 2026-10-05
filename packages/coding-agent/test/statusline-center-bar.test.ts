@@ -19,6 +19,7 @@ import { StatusLineComponent } from "@oh-my-pi/pi-tui/status-line";
 import { END_OF_BAR_SEGMENTS, STATUS_LINE_PRESETS } from "@oh-my-pi/pi-tui/status-line/presets";
 import { BUILTIN_MODE_SLASH_COMMANDS } from "../src/slash-commands/builtin-modes";
 import type { TuiSlashCommandRuntime } from "../src/slash-commands/types";
+import type { StatusLineSegmentId } from "@oh-my-pi/pi-tui/status-line/types";
 import { getSettingDef } from "@oh-my-pi/pi-tui/overlays/settings-defs";
 import { centerBarSegments } from "@oh-my-pi/pi-tui/overlays/settings-selector";
 import { initTheme } from "@oh-my-pi/pi-tui/theme";
@@ -101,7 +102,7 @@ function makeSession() {
 }
 
 /** The live bar, fed the way `#syncStatusLineSettings` feeds it: straight from the real host. */
-function renderBar(): { content: string; left: readonly string[]; right: readonly string[] } {
+function renderBar(): { content: string; left: readonly StatusLineSegmentId[]; right: readonly StatusLineSegmentId[] } {
 	const component = statusLines.track(new StatusLineComponent(makeSession(), statusLineHost));
 	component.updateSettings(statusLineHost.getSettings());
 	const effective = component.getEffectiveSettingsForTest();

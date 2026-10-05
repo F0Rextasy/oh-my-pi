@@ -6,6 +6,7 @@
 
 - The first edit in Appearance › Status Line › Center Bar no longer collapses the status line. The row listed the schema default instead of the active preset's own segments, so the edit it committed was not the bar that was on screen, and switching to the Custom preset dropped every segment the default list did not carry ([#14397](https://github.com/can1357/oh-my-pi/pull/14397) by [@F0Rextasy](https://github.com/F0Rextasy)).
 - The `thinking` status line segment reading the model segment's options. Turning thinking display off on the Model row blanked `thinking` as well, and putting both on the bar printed the same level twice; `thinking` now reads its own `thinking.show` option ([#14397](https://github.com/can1357/oh-my-pi/pull/14397) by [@F0Rextasy](https://github.com/F0Rextasy)).
+- Appearance › Status Line › Center Bar offering the stock Custom segment list to a user who configured only `statusLine.leftSegments` and `statusLine.rightSegments`. The row showed ten preset segments over a bar drawing three, so the first edit overwrote their bar with the stock list; the row now reads the same half-lists the renderer reads on `custom` ([#14397](https://github.com/can1357/oh-my-pi/pull/14397) by [@F0Rextasy](https://github.com/F0Rextasy)).
 
 ## [18.6.1] - 2026-10-04
 
