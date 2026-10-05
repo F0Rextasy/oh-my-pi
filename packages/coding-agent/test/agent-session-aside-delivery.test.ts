@@ -271,7 +271,7 @@ describe("AgentSession aside delivery", () => {
 		});
 
 		let observedRecords: unknown[] | undefined;
-		session.setIrcWakeTurnObserver(records => {
+		session.setTaskTurnObserver(records => {
 			observedRecords = records;
 			return undefined;
 		});
@@ -610,7 +610,7 @@ describe("AgentSession aside delivery", () => {
 		});
 
 		let observedRecords: unknown[] | undefined;
-		session.setIrcWakeTurnObserver(records => {
+		session.setTaskTurnObserver(records => {
 			observedRecords = records;
 			return undefined;
 		});
@@ -1419,7 +1419,7 @@ describe("AgentSession aside delivery", () => {
 			ownedAsyncJobManager: manager,
 		});
 
-		session.setIrcWakeTurnObserver(_records => {
+		session.setTaskTurnObserver(_records => {
 			events.push("observer-start");
 			// The agent auto-backgrounded a build during the wake turn: the job
 			// outlives the turn and its async-result continuation is where the
@@ -1499,7 +1499,7 @@ describe("AgentSession aside delivery", () => {
 			ownedAsyncJobManager: manager,
 		});
 
-		session.setIrcWakeTurnObserver(_records => {
+		session.setTaskTurnObserver(_records => {
 			events.push("observer-start");
 			// The agent auto-backgrounded a build during the plain wake turn.
 			manager.register(

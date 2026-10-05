@@ -12,7 +12,7 @@ export function createSessionDefaults() {
 		hasPendingAsyncWork: () => false,
 		abort: async () => {},
 		dispose: async () => {},
-		setIrcWakeTurnObserver: () => {},
+		setTaskTurnObserver: () => {},
 		isAdvisorActive: () => false,
 		subscribeRunState: () => () => {},
 		addDisposer: () => {},

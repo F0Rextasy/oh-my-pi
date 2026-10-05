@@ -243,7 +243,7 @@ describe("handleRpcCancelSubagent", () => {
 			settleAsyncWork: async () => {},
 			abort: async () => {},
 			dispose: async () => {},
-			setIrcWakeTurnObserver: () => {},
+			setTaskTurnObserver: () => {},
 			trackIrcReply: () => {},
 			subscribeRunState: () => () => {},
 			addDisposer: () => {},

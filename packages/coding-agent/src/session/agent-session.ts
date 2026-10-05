@@ -851,7 +851,11 @@ export class AgentSession implements SettingsScope {
 	#asyncDeliveryEpoch = 0;
 
 	readonly #irc: IrcBridge;
-	#ircWakeTurnObserver:
+	// Installed by the task executor for a kept-alive subagent. Wraps every turn
+	// this session runs on the parent's behalf, whether an autonomous IRC wake
+	// turn or a turn the parent (or its focused TUI view) prompted directly. See
+	// {@link setTaskTurnObserver}.
+	#taskTurnObserver:
 		| ((records: AgentMessage[]) => ((error?: unknown) => void | Promise<void>) | undefined)
 		| undefined;
 	// Agent identity (registry id) used for IRC routing and job ownership.
@@ -1267,7 +1271,7 @@ export class AgentSession implements SettingsScope {
 					return;
 				}
 				try {
-					finishObservation = this.#ircWakeTurnObserver?.(records);
+					finishObservation = this.#taskTurnObserver?.(records);
 				} catch (error) {
 					logger.warn("IRC wake turn observer failed to start", { error: String(error) });
 				}
@@ -7108,7 +7112,18 @@ export class AgentSession implements SettingsScope {
 			preludeMessages.push(eagerTaskPrelude);
 		}
 
+		// A kept-alive subagent's session carries the executor's task monitor (see
+		// {@link setTaskTurnObserver}). Every turn the parent runs on the subagent
+		// belongs to that monitor, not just the autonomous IRC wake ones: a parent
+		// (or its focused TUI view) calling `prompt()` directly used to bypass it
+		// entirely, so an accepted yield neither registered the parent job nor
+		// notified it nor refreshed `<id>.md`. Bracket this turn the way
+		// #wakeForIrc does. The headless drivers pass `taskMonitorOwnedByCaller`
+		// because they own their own monitor and would otherwise deliver twice.
+		const finishTurnObservation =
+			this.#taskTurnObserver && !options?.taskMonitorOwnedByCaller ? this.#taskTurnObserver([message]) : undefined;
 		let dispatched = false;
+		let turnError: unknown;
 		try {
 			dispatched = await this.#promptWithMessage(message, expandedText, {
 				...options,
@@ -7127,6 +7142,7 @@ export class AgentSession implements SettingsScope {
 						: undefined,
 			});
 		} catch (error) {
+			turnError = error;
 			if (error instanceof AgentStartPolicyChangedError && message.role === "user") {
 				this.#promptDropped?.({ text: typedText, images: options?.images });
 			}
@@ -7136,6 +7152,27 @@ export class AgentSession implements SettingsScope {
 			// (e.g., compaction aborted, validation failed).
 			this.#toolChoiceQueue.removeByLabel("eager-todo");
 			this.#toolChoiceQueue.removeByLabel("external-thinking");
+			// The monitor outlives the turn: an async-result continuation is where the
+			// agent may finally yield (#11564), so settle owned background work before
+			// detaching, exactly as #wakeForIrc does. Detached for the same reason:
+			// `prompt()` must resolve when the turn does, not when the subagent's
+			// background jobs drain, which can be arbitrarily later. #promptWithMessage
+			// has already released its in-flight bracket, which must precede the settle
+			// or the delivery this settle awaits deadlocks.
+			if (finishTurnObservation) {
+				void (async () => {
+					try {
+						await this.settleAsyncWork();
+					} catch (error) {
+						logger.warn("Subagent turn async-work settle failed", { error: String(error) });
+					}
+					try {
+						await finishTurnObservation(turnError);
+					} catch (error) {
+						logger.warn("Subagent turn observer failed to finish", { error: String(error) });
+					}
+				})();
+			}
 		}
 		outcome.sessionClaimed = dispatched;
 		if (!dispatched && message.role === "user") {
@@ -10404,11 +10441,19 @@ export class AgentSession implements SettingsScope {
 		this.#irc.trackReply(pending);
 	}
 
-	/** Installs task-executor monitoring around autonomous IRC wake turns. */
-	setIrcWakeTurnObserver(
+	/**
+	 * Installs task-executor monitoring around the turns this kept-alive subagent
+	 * runs on its parent's behalf. The returned callback receives the records that
+	 * started the turn (the IRC wake records for an autonomous wake, the dispatched
+	 * prompt message for a direct `prompt()`) and returns the finisher that
+	 * terminalizes the ref, finalizes the result, and delivers it to the parent.
+	 * Runs for every such turn, not only wake turns: a manually yielded subagent
+	 * must reach its parent exactly as a woken one does.
+	 */
+	setTaskTurnObserver(
 		observer: ((records: AgentMessage[]) => ((error?: unknown) => void | Promise<void>) | undefined) | undefined,
 	): void {
-		this.#ircWakeTurnObserver = observer;
+		this.#taskTurnObserver = observer;
 	}
 
 	/** Emits an IRC relay observation for UI rendering without persisting it. */

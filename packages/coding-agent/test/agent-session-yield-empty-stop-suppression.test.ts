@@ -244,7 +244,7 @@ describe("AgentSession yield empty-stop suppression", () => {
 		session.subscribe(event => {
 			if (event.type === "agent_end") observerEvents.push(`agent_end:${mock.calls.length}`);
 		});
-		session.setIrcWakeTurnObserver(() => {
+		session.setTaskTurnObserver(() => {
 			observerEvents.push("started");
 			return () => {
 				observerEvents.push(`finished:${mock.calls.length}`);

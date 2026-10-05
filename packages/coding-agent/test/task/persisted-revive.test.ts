@@ -105,7 +105,7 @@ function createRevivedSession(activeToolNames: string[][], extensionRunner?: unk
 			activeToolNames.push(names);
 		},
 		subscribe: (_listener: (event: AgentSessionEvent) => void) => () => {},
-		setIrcWakeTurnObserver: (next: IrcWakeObserver | undefined) => {
+		setTaskTurnObserver: (next: IrcWakeObserver | undefined) => {
 			observer = next;
 		},
 		trackIrcReply: (pending: Promise<void>) => {
@@ -384,9 +384,9 @@ describe("persisted subagent revival", () => {
 		MCPManager.setInstance({ getTools: () => [] } as unknown as MCPManager);
 		// Run the real wake monitor (call through) so the assertion is tied to the
 		// component that actually writes <id>.md, not a stubbed seam.
-		const realAttach = executorModule.attachIrcWakeTurnMonitor;
+		const realAttach = executorModule.attachTaskTurnMonitor;
 		let capturedArtifactsDir: string | undefined;
-		const attachSpy = vi.spyOn(executorModule, "attachIrcWakeTurnMonitor").mockImplementation((session, options) => {
+		const attachSpy = vi.spyOn(executorModule, "attachTaskTurnMonitor").mockImplementation((session, options) => {
 			capturedArtifactsDir = options.artifactsDir;
 			return realAttach(session, options);
 		});

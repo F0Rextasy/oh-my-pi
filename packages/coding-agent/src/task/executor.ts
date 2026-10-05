@@ -2285,7 +2285,18 @@ async function driveSessionToYield(
 		for (let attempt = 1; attempt <= MAX_PROMPT_DISPATCH_ATTEMPTS; attempt++) {
 			if (forceFinalYield) monitor.markFinalYieldForced(true);
 			try {
-				await awaitAbortable(session.prompt(text, { ...promptOptions, runCommands: false, throwOnDrop: true }));
+				// `taskMonitorOwnedByCaller`: this driver supplied the `monitor` above.
+				// It registers the parent job and finalizes the result itself, so the
+				// session's installed task monitor must stay off this prompt or the
+				// same yield would register twice and deliver two completions.
+				await awaitAbortable(
+					session.prompt(text, {
+						...promptOptions,
+						runCommands: false,
+						throwOnDrop: true,
+						taskMonitorOwnedByCaller: true,
+					}),
+				);
 				return;
 			} catch (err) {
 				if (!(err instanceof PromptDroppedError)) throw err;
@@ -2793,9 +2804,9 @@ async function finalizeRunResult(args: FinalizeRunArgs): Promise<SingleResult> {
 	};
 }
 
-/** Inputs for {@link attachIrcWakeTurnMonitor}. */
-export interface IrcWakeTurnMonitorOptions {
-	/** Registry id of the kept-alive subagent whose autonomous IRC wake turns are monitored. */
+/** Inputs for {@link attachTaskTurnMonitor}. */
+export interface TaskTurnMonitorOptions {
+	/** Registry id of the kept-alive subagent whose parent-driven turns are monitored. */
 	id: string;
 	index?: number;
 	agent: AgentDefinition;
@@ -2967,12 +2978,17 @@ function extractIrcRecordText(content: string | ReadonlyArray<{ type: string; te
 }
 
 /**
- * Bracket a kept-alive subagent's autonomous IRC wake turns with a task run
- * monitor so RPC/collab subscribers see the same `subagent_lifecycle` /
+ * Bracket a kept-alive subagent's parent-driven turns with a task run monitor
+ * so RPC/collab subscribers see the same `subagent_lifecycle` /
  * `subagent_progress` frames a first run emits. Shared by the live executor
  * reviver and the persisted cold-revive path so a resumed process's parked
- * subagents are not blind spots. The observer runs after the session has
- * flushed its post-prompt settle (see {@link AgentSession.setIrcWakeTurnObserver}).
+ * subagents are not blind spots.
+ *
+ * Both kinds of parent-driven turn run under this monitor (see
+ * {@link AgentSession.setTaskTurnObserver}): an autonomous IRC wake turn, and a
+ * turn the parent or its focused TUI view prompted directly on the session. The
+ * second kind used to bypass the monitor entirely, so a manually accepted yield
+ * registered no parent job, notified nobody, and left `<id>.md` stale.
  *
  * The turn's output reaches the parent as an async job when the parent's
  * message woke the turn or the turn yielded, and the other waking peers via
@@ -2980,11 +2996,11 @@ function extractIrcRecordText(content: string | ReadonlyArray<{ type: string; te
  * the session up front so a `send await:true` waiter holds its "stopped
  * without replying" verdict until the relay has been delivered.
  */
-export function attachIrcWakeTurnMonitor(session: AgentSession, options: IrcWakeTurnMonitorOptions): void {
+export function attachTaskTurnMonitor(session: AgentSession, options: TaskTurnMonitorOptions): void {
 	const { id, agent } = options;
 	const index = options.index ?? 0;
 	const maxRuntimeMs = options.maxRuntimeMs ?? 0;
-	session.setIrcWakeTurnObserver(records => {
+	session.setTaskTurnObserver(records => {
 		// Autonomous IRC wake turns reuse the session's YieldTool just like
 		// runSubagentFollowUpTurn; clear the prior run's incremental-section flag
 		// and retry counters so this wake turn's guards see only its own state.
@@ -3667,7 +3683,8 @@ interface WarmReviveCapture {
 	parentArtifactManager: ArtifactManager | undefined;
 	/** Todos are parent-owned and stripped from subagents, except under prewalk (its todo gate needs them). */
 	keepTodo: boolean;
-	wake: IrcWakeTurnMonitorOptions;
+	/** Monitor options re-installed on every revival, covering wake and direct turns alike. */
+	turnMonitor: TaskTurnMonitorOptions;
 }
 
 /** Keeps `capture.settings` current with `session`'s overlay writes until the session is disposed. */
@@ -3721,7 +3738,7 @@ function createWarmSubagentReviver(capture: WarmReviveCapture): AgentReviver {
 			filterActiveTools: toolNames => (capture.keepTodo ? toolNames : toolNames.filter(name => name !== "todo")),
 		});
 		AgentRegistry.global().syncSessionStatus(id, revived);
-		attachIrcWakeTurnMonitor(revived, capture.wake);
+		attachTaskTurnMonitor(revived, capture.turnMonitor);
 		return revived;
 	};
 }
@@ -3899,7 +3916,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 	let unsubscribe: (() => void) | null = null;
 	let registryAbortUnsubscribe: (() => void) | null = null;
 	let reviveSession: AgentReviver | null = null;
-	const wakeOptions: IrcWakeTurnMonitorOptions = {
+	const turnMonitorOptions: TaskTurnMonitorOptions = {
 		id,
 		index,
 		agent,
@@ -4322,7 +4339,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 					settings: captureSubagentSettings(settings, subagentSettings),
 					parentArtifactManager: options.parentArtifactManager,
 					keepTodo: prewalk !== undefined,
-					wake: wakeOptions,
+					turnMonitor: turnMonitorOptions,
 				};
 				trackSubagentSettings(session, reviveCapture);
 				reviveSession = createWarmSubagentReviver(reviveCapture);
@@ -4527,7 +4544,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 			if (session) {
 				monitor.captureSalvage(session);
 				if (options.keepAlive !== false) {
-					attachIrcWakeTurnMonitor(session, wakeOptions);
+					attachTaskTurnMonitor(session, turnMonitorOptions);
 				}
 				await finalizeSubagentLifecycle({
 					id,

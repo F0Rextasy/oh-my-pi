@@ -3,10 +3,18 @@
  * accepted must leave `running` and carry its run lifecycle milestones without
  * any parent message or extra poll — on the initial run, on a follow-up turn,
  * and on an autonomous IRC wake turn.
+ *
+ * The focused-manual-yield case (#14428) below drives a real AgentSession so the
+ * defect's actual location, `prompt()`'s dispatch, is exercised.
  */
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "bun:test";
+import { Agent, type AgentMessage, type AgentTool } from "@oh-my-pi/pi-agent-core";
 import type { AssistantMessage } from "@oh-my-pi/pi-ai";
+import { createMockModel } from "@oh-my-pi/pi-ai/providers/mock";
 import { AsyncJobManager } from "@oh-my-pi/pi-coding-agent/async/job-manager";
+import { ModelRegistry } from "@oh-my-pi/pi-coding-agent/config/model-registry";
 import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import { IrcBus } from "@oh-my-pi/pi-coding-agent/irc/bus";
 import type { LoadExtensionsResult } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/types";
@@ -14,17 +22,19 @@ import { AgentLifecycleManager } from "@oh-my-pi/pi-coding-agent/registry/agent-
 import { AgentRegistry } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
 import type { CreateAgentSessionResult } from "@oh-my-pi/pi-coding-agent/sdk";
 import * as sdkModule from "@oh-my-pi/pi-coding-agent/sdk";
-import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
-import type { AgentSession, AgentSessionEvent } from "@oh-my-pi/pi-coding-agent/session/agent-session";
-import {
-	attachIrcWakeTurnMonitor,
-	runSubagentFollowUpTurn,
-	runSubprocess,
-} from "@oh-my-pi/pi-coding-agent/task/executor";
+import type { AgentSessionEvent } from "@oh-my-pi/pi-coding-agent/session/agent-session";
+import { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
+import type { AuthStorage } from "@oh-my-pi/pi-coding-agent/session/auth-storage";
+import { convertToLlm } from "@oh-my-pi/pi-coding-agent/session/messages";
+import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
+import { attachTaskTurnMonitor, runSubagentFollowUpTurn, runSubprocess } from "@oh-my-pi/pi-coding-agent/task/executor";
 import type { AgentDefinition } from "@oh-my-pi/pi-coding-agent/task/types";
 import type { ToolSession } from "@oh-my-pi/pi-coding-agent/tools";
 import { WaitTool } from "@oh-my-pi/pi-coding-agent/tools/wait";
+import { YieldTool } from "@oh-my-pi/pi-coding-agent/tools/yield";
 import { EventBus } from "@oh-my-pi/pi-coding-agent/utils/event-bus";
+import { TempDir } from "@oh-my-pi/pi-utils";
+import { createInMemoryAuthStorage } from "../helpers/agent-session-setup";
 
 const AGENT_ID = "accepted-result";
 
@@ -63,7 +73,7 @@ interface SessionHarness {
 	emitTerminalYield: (data: unknown) => void;
 	/** End an assistant message carrying `text` and no tool calls. */
 	emitAssistantText: (text: string) => void;
-	/** The observer factory installed by {@link attachIrcWakeTurnMonitor}, if any. */
+	/** The observer factory installed by {@link attachTaskTurnMonitor}, if any. */
 	wakeObserver: () =>
 		| ((records: AgentMessage[]) => ((error?: unknown) => void | Promise<void>) | undefined)
 		| undefined;
@@ -141,7 +151,7 @@ function createHarness(options?: { hangPrompt?: boolean; asyncJobManager?: Async
 		settleAsyncWork: async () => {},
 		abort: async () => {},
 		dispose: async () => {},
-		setIrcWakeTurnObserver: (
+		setTaskTurnObserver: (
 			observer: ((records: AgentMessage[]) => ((error?: unknown) => void | Promise<void>) | undefined) | undefined,
 		) => {
 			wakeObserver = observer;
@@ -285,7 +295,7 @@ describe("runSubprocess result acceptance", () => {
 	it("terminalizes the ref when an autonomous wake turn's yield is accepted", async () => {
 		const harness = createHarness();
 		registerRunning(harness.session);
-		attachIrcWakeTurnMonitor(harness.session, { id: AGENT_ID, agent: baseAgent });
+		attachTaskTurnMonitor(harness.session, { id: AGENT_ID, agent: baseAgent });
 		const observer = harness.wakeObserver();
 		expect(observer).toBeDefined();
 
@@ -325,7 +335,7 @@ describe("runSubprocess result acceptance", () => {
 			session: harness.session,
 			status: "idle",
 		});
-		attachIrcWakeTurnMonitor(harness.session, { id: AGENT_ID, agent: baseAgent });
+		attachTaskTurnMonitor(harness.session, { id: AGENT_ID, agent: baseAgent });
 		const observer = harness.wakeObserver();
 		if (!observer) throw new Error("wake-turn observer was not registered");
 
@@ -369,7 +379,7 @@ describe("runSubprocess result acceptance", () => {
 			session: harness.session,
 			status: "idle",
 		});
-		attachIrcWakeTurnMonitor(harness.session, { id: AGENT_ID, agent: baseAgent });
+		attachTaskTurnMonitor(harness.session, { id: AGENT_ID, agent: baseAgent });
 		const observer = harness.wakeObserver();
 		if (!observer) throw new Error("wake-turn observer was not registered");
 		const parent = {
@@ -405,6 +415,137 @@ describe("runSubprocess result acceptance", () => {
 			});
 			// The job carries the answer; a relay message would deliver it twice.
 			expect(IrcBus.global().take("Parent")).toBeUndefined();
+		} finally {
+			await manager.dispose({ timeoutMs: 1000 });
+		}
+	});
+});
+
+/**
+ * A focused subagent's manual yield (#14428). The parent, or the TUI focused
+ * view acting for it, prompts the kept-alive session directly rather than
+ * letting a peer message wake it. That turn was the one parent-driven turn the
+ * executor's monitor never saw, so its accepted yield registered no job,
+ * delivered nothing, and left `<id>.md` stale, while the same yield on the wake
+ * path did all three. Both paths now share the monitor; this drives the real
+ * `session.prompt()` the way the focused view does and asserts the parent hears
+ * about it.
+ *
+ * A real AgentSession is required: the defect lives in `prompt()`'s dispatch,
+ * which a stubbed session would not exercise.
+ */
+describe("focused subagent manual yield", () => {
+	let tempDir: TempDir;
+	let authStorage: AuthStorage;
+	let session: AgentSession | undefined;
+
+	beforeEach(() => {
+		AgentRegistry.resetGlobalForTests();
+		AgentLifecycleManager.resetGlobalForTests();
+		IrcBus.resetGlobalForTests();
+		tempDir = TempDir.createSync("@pi-focused-yield-");
+		authStorage = createInMemoryAuthStorage();
+		authStorage.keys.setRuntime("mock", "test-key");
+	});
+
+	afterEach(async () => {
+		await session?.dispose();
+		authStorage.close();
+		tempDir.removeSync();
+		AsyncJobManager.resetForTests();
+		AgentLifecycleManager.resetGlobalForTests();
+		AgentRegistry.resetGlobalForTests();
+		IrcBus.resetGlobalForTests();
+	});
+
+	/**
+	 * A kept-alive subagent session whose model answers one prompt with a
+	 * terminal `yield`, with the executor's monitor attached and the artifacts
+	 * directory wired the way `runSubprocess` wires it.
+	 */
+	async function createSubagentSession(options: {
+		artifactsDir: string;
+		asyncJobManager: AsyncJobManager;
+	}): Promise<AgentSession> {
+		const mock = createMockModel({
+			provider: "mock",
+			id: "focused-model",
+			responses: [
+				{
+					content: [{ type: "toolCall", id: "y1", name: "yield", arguments: { data: { report: "go on" } } }],
+					stopReason: "toolUse",
+				},
+			],
+		});
+		const settings = Settings.isolated({
+			"compaction.enabled": false,
+			"retry.enabled": false,
+			"todo.enabled": false,
+		});
+		settings.setModelRole("default", `${mock.provider}/${mock.id}`);
+		// A real YieldTool, so the accepted terminal yield the monitor keys on is
+		// produced by the same tool a subagent run uses.
+		const toolSession = {
+			cwd: tempDir.path(),
+			settings: Settings.isolated({}),
+			agentRegistry: AgentRegistry.global(),
+			asyncJobManager: options.asyncJobManager,
+			getAgentId: () => AGENT_ID,
+		} as unknown as ToolSession;
+		const tools = [new YieldTool(toolSession)] as unknown as AgentTool[];
+		const agent = new Agent({
+			getApiKey: () => "test-key",
+			initialState: { model: mock, systemPrompt: ["Test"], tools, messages: [] },
+			convertToLlm,
+			streamFn: mock.stream,
+		});
+		session = new AgentSession({
+			agent,
+			sessionManager: SessionManager.inMemory(tempDir.path()),
+			settings,
+			modelRegistry: new ModelRegistry(authStorage),
+			toolRegistry: new Map(tools.map(tool => [tool.name, tool])),
+			agentId: AGENT_ID,
+			agentKind: "sub",
+			asyncJobManager: options.asyncJobManager,
+		});
+		return session;
+	}
+
+	it("delivers a manually yielded focused subagent's completion to its parent", async () => {
+		const manager = new AsyncJobManager({});
+		const delivered: string[] = [];
+		manager.registerDeliverySink("Parent", (_jobId, text) => {
+			delivered.push(text);
+		});
+		const artifactsDir = path.join(tempDir.path(), "artifacts");
+		fs.mkdirSync(artifactsDir, { recursive: true });
+		const subagent = await createSubagentSession({ artifactsDir, asyncJobManager: manager });
+		AgentRegistry.global().register({
+			id: AGENT_ID,
+			displayName: AGENT_ID,
+			kind: "sub",
+			parentId: "Parent",
+			session: subagent,
+			status: "idle",
+		});
+		attachTaskTurnMonitor(subagent, {
+			id: AGENT_ID,
+			agent: baseAgent,
+			artifactsDir,
+		});
+
+		try {
+			// The focused view's submit: a bare prompt on the subagent's session.
+			await subagent.prompt("go on");
+			await manager.waitForAll();
+			await manager.drainDeliveries({ timeoutMs: 1000 });
+
+			// The parent's delivery sink saw the yield, as on the wake path.
+			expect(delivered).toHaveLength(1);
+			expect(delivered[0]).toContain("go on");
+			// And the artifact the wake path would have rewritten was updated.
+			expect(fs.readFileSync(path.join(artifactsDir, `${AGENT_ID}.md`), "utf8")).toContain("go on");
 		} finally {
 			await manager.dispose({ timeoutMs: 1000 });
 		}

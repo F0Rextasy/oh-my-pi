@@ -100,7 +100,7 @@ function createMockSession(
 		sendUserMessage: async (content, options) => {
 			sentUserMessages.push({ content, options });
 		},
-		setIrcWakeTurnObserver: observer => {
+		setTaskTurnObserver: observer => {
 			ircWakeTurnObserver = observer;
 		},
 		trackIrcReply: () => {},

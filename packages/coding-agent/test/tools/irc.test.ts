@@ -526,7 +526,7 @@ describe("IRC", () => {
 			vi.spyOn(session, "refreshBaseSystemPrompt").mockResolvedValue(undefined);
 			const promptSpy = vi.spyOn(session.agent, "prompt").mockResolvedValue(undefined);
 			let observations = 0;
-			session.setIrcWakeTurnObserver(() => () => {
+			session.setTaskTurnObserver(() => () => {
 				observations++;
 			});
 			await session.setWorkPoolYieldItems([{ id: "pool#1", index: 1 }]);

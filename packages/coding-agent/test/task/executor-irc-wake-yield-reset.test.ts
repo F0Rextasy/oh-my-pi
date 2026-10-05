@@ -3,7 +3,7 @@ import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import type { ToolSession } from "@oh-my-pi/pi-coding-agent/tools";
 import { YieldTool } from "@oh-my-pi/pi-coding-agent/tools/yield";
-import { attachIrcWakeTurnMonitor } from "@oh-my-pi/pi-coding-agent/task/executor";
+import { attachTaskTurnMonitor } from "@oh-my-pi/pi-coding-agent/task/executor";
 import type { AgentDefinition } from "@oh-my-pi/pi-coding-agent/task/types";
 import { createSessionDefaults } from "../helpers/session-defaults";
 
@@ -38,13 +38,13 @@ describe("IRC wake turn yield reset", () => {
 			...createSessionDefaults(),
 			getToolByName: (name: string) => (name === "yield" ? yieldTool : undefined),
 			subscribe: () => () => {},
-			setIrcWakeTurnObserver: (obs: typeof observer) => {
+			setTaskTurnObserver: (obs: typeof observer) => {
 				observer = obs;
 			},
 			trackIrcReply: () => {},
 		} as unknown as AgentSession;
 
-		attachIrcWakeTurnMonitor(session, { id: "wake-1", agent: wakeAgent });
+		attachTaskTurnMonitor(session, { id: "wake-1", agent: wakeAgent });
 		if (!observer) throw new Error("wake-turn observer was not registered");
 
 		// A prior run's incremental section sets the flag on the reused tool.

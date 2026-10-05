@@ -16,7 +16,7 @@ import type { AuthStorage } from "../session/auth-storage";
 import { extractSessionInit, hasConversationalHistory, SessionManager } from "../session/session-manager";
 import type { EventBus } from "../utils/event-bus";
 import {
-	attachIrcWakeTurnMonitor,
+	attachTaskTurnMonitor,
 	compactionThresholdSettings,
 	createMCPProxyTools,
 	createSubagentSettings,
@@ -249,7 +249,7 @@ export function createPersistedSubagentReviverFactory(
 				systemPrompt: init.systemPrompt,
 				source: "user",
 			};
-			attachIrcWakeTurnMonitor(session, {
+			attachTaskTurnMonitor(session, {
 				id: ref.id,
 				agent: wakeAgent,
 				eventBus: ctx.eventBus,

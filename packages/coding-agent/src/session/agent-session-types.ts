@@ -409,6 +409,17 @@ export interface PromptOptions {
 	attribution?: MessageAttribution;
 	/** Skip pre-send compaction checks for this prompt. */
 	skipCompactionCheck?: boolean;
+	/**
+	 * Skip the session's installed {@link AgentSession.setTaskTurnObserver} task
+	 * monitor for this prompt. The headless task drivers set it because they
+	 * attach their own {@link SubagentRunMonitor}, register their own parent job,
+	 * and finalize the result themselves; observing the same turn twice would
+	 * deliver two completions for one yield. Unset (the default), a prompt on a
+	 * kept-alive subagent runs under the installed monitor, which is what makes a
+	 * parent's direct `prompt()` (including the focused TUI view) register its
+	 * result and notify the parent exactly as an IRC wake turn does.
+	 */
+	taskMonitorOwnedByCaller?: boolean;
 	/** Delegator's open-endedness description (task tool `solutionSpace`); replaces the prompt as `auto` thinking classification input. */
 	solutionSpace?: string;
 	/**
