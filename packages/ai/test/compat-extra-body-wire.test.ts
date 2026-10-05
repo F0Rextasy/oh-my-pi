@@ -1,6 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { streamAnthropic } from "@oh-my-pi/pi-ai/providers/anthropic";
+import { streamAzureOpenAIResponses } from "@oh-my-pi/pi-ai/providers/azure-openai-responses";
 import { streamOpenAIResponses } from "@oh-my-pi/pi-ai/providers/openai-responses";
+import { buildTransformedCodexRequestBody } from "@oh-my-pi/pi-ai/providers/openai-codex-responses";
 import type { Context, FetchImpl, Model, ModelSpec } from "@oh-my-pi/pi-ai/types";
 import { buildModel } from "@oh-my-pi/pi-catalog/build";
 
@@ -46,6 +48,33 @@ async function captureResponsesBody(model: Model<"openai-responses">): Promise<R
 	for await (const event of stream) {
 		if (event.type === "done" || event.type === "error") break;
 	}
+	return promise;
+}
+
+async function captureAzurePayload(compat: Record<string, unknown>): Promise<Record<string, unknown>> {
+	const model = buildModel({
+		id: "gpt-5-mini",
+		name: "GPT-5 Mini",
+		api: "azure-openai-responses",
+		provider: "azure",
+		baseUrl: "https://example.openai.azure.com/openai/v1",
+		reasoning: false,
+		input: ["text"],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 400_000,
+		maxTokens: 128_000,
+		compat,
+	} as ModelSpec<"azure-openai-responses">);
+	const aborted = new AbortController();
+	aborted.abort();
+	const { promise, resolve } = Promise.withResolvers<Record<string, unknown>>();
+	streamAzureOpenAIResponses(model, CONTEXT, {
+		apiKey: "test-key",
+		azureBaseUrl: model.baseUrl,
+		azureApiVersion: "v1",
+		signal: aborted.signal,
+		onPayload: payload => resolve(payload as Record<string, unknown>),
+	});
 	return promise;
 }
 
@@ -108,6 +137,19 @@ describe("compat.extraBody reaches the wire", () => {
 		expect(payload.controller).toBe("mlx");
 	});
 
+	it("merges a configured Azure Responses extra body into the request", async () => {
+		const payload = await captureAzurePayload({ extraBody: { gateway: "m1-01", controller: "mlx" } });
+
+		expect(payload.gateway).toBe("m1-01");
+		expect(payload.controller).toBe("mlx");
+	});
+
+	it("lets a configured extra body override a transport-owned Azure field", async () => {
+		const payload = await captureAzurePayload({ extraBody: { store: true } });
+
+		expect(payload.store).toBe(true);
+	});
+
 	it("lets a configured extra body override a transport-owned Responses field", async () => {
 		const body = await captureResponsesBody(responsesModel({ extraBody: { store: true } }));
 
@@ -132,5 +174,25 @@ describe("compat.extraBody outside its supported APIs", () => {
 		} as ModelSpec<"google-generative-ai">);
 
 		expect(Reflect.get(model.compat, "extraBody")).toBeUndefined();
+	});
+
+	it("never carries an extra body onto a Codex Responses request", async () => {
+		const model = buildModel({
+			id: "gpt-5.6-codex",
+			name: "Codex",
+			api: "openai-codex-responses",
+			provider: "openai-codex",
+			baseUrl: "https://chatgpt.com/backend-api/codex",
+			reasoning: true,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 400_000,
+			maxTokens: 128_000,
+			compat: { extraBody: { gateway: "m1-01" } },
+		} as ModelSpec<"openai-codex-responses">);
+
+		const body = await buildTransformedCodexRequestBody(model, CONTEXT, undefined);
+
+		expect(body.gateway).toBeUndefined();
 	});
 });

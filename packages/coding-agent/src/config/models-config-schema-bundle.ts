@@ -19,11 +19,15 @@ function validateMaxContextWindow(
  * APIs whose transport merges `compat.extraBody` into the outgoing request
  * body (issue #12087). Configuring it for any other api is a config error:
  * the field would otherwise be accepted and silently dropped.
+ *
+ * `openai-codex-responses` is deliberately absent. That transport strips
+ * caller-supplied parameters because the Codex backend rejects the ones it
+ * does not know (`{"detail":"Unsupported parameter: ..."}`), so an arbitrary
+ * extra body would turn every Codex turn into a 400.
  */
 const EXTRA_BODY_APIS: readonly string[] = [
 	"openai-completions",
 	"openai-responses",
-	"openai-codex-responses",
 	"azure-openai-responses",
 	"anthropic-messages",
 ];

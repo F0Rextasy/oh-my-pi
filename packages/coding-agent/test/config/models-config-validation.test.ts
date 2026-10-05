@@ -120,15 +120,22 @@ describe("models.yml compat.extraBody applicability (#12087)", () => {
 	});
 
 	test("accepts extraBody for every API whose transport merges it", () => {
-		for (const api of [
-			"openai-completions",
-			"openai-responses",
-			"openai-codex-responses",
-			"azure-openai-responses",
-			"anthropic-messages",
-		]) {
+		for (const api of ["openai-completions", "openai-responses", "azure-openai-responses", "anthropic-messages"]) {
 			const parsed = schema(providerConfig(api, { extraBody: { gateway: "m1-01" } }));
 			expect(parsed instanceof OmpErrors).toBe(false);
+		}
+	});
+
+	test("accepts extraBody on Azure Responses, which now merges it", () => {
+		const parsed = schema(providerConfig("azure-openai-responses", { extraBody: { gateway: "m1-01" } }));
+		expect(parsed instanceof OmpErrors).toBe(false);
+	});
+
+	test("rejects extraBody on the Codex transport, which strips caller parameters", () => {
+		const parsed = schema(providerConfig("openai-codex-responses", { extraBody: { gateway: "m1-01" } }));
+		expect(parsed instanceof OmpErrors).toBe(true);
+		if (parsed instanceof OmpErrors) {
+			expect(parsed.summary).toContain('compat.extraBody dropped for api "openai-codex-responses"');
 		}
 	});
 

@@ -12,7 +12,7 @@
 - Fixed replayed Responses and Codex history, including persisted Codex user/developer and assistant items, sending `detail: "original"` images to endpoints whose `supportsImageDetailOriginal` is off ([#13687](https://github.com/can1357/oh-my-pi/pull/13687) by [@alphastorm](https://github.com/alphastorm)).
 ### Fixed
 
-- Fixed a model's `compat.extraBody` being ignored by the OpenAI Responses and Anthropic Messages transports. The field is the escape hatch for sending top-level request keys the transport does not model (gateway routing hints, vendor extensions), and it now reaches the request body on both surfaces ([#12087](https://github.com/can1357/oh-my-pi/issues/12087)).
+- Fixed a model's `compat.extraBody` being ignored by the OpenAI Responses, Azure OpenAI Responses, and Anthropic Messages transports. The field is the escape hatch for sending top-level request keys the transport does not model (gateway routing hints, vendor extensions), and it now reaches the request body on all three surfaces ([#12087](https://github.com/can1357/oh-my-pi/issues/12087)).
 
 ## [18.6.1] - 2026-10-04
 

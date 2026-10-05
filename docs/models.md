@@ -795,9 +795,10 @@ Request shaping:
 - `supportsSteering` — let the Codex WebSocket transport send `response.steer`, so a message typed while the model responds joins that response instead of waiting for the next request. Default: auto (`true` for the GPT-6 family). Set `false` for proxies that reject the event.
 - `extraBody` — extra top-level fields merged into every request body (gateway hints, controller selectors, etc.).
   Merged last, so a configured key wins over the transport's own value for that field. Supported on
-  `openai-completions`, the Responses APIs (`openai-responses`, `openai-codex-responses`,
-  `azure-openai-responses`) and `anthropic-messages`; declaring it for any other API in `models.yml`
-  is a config error rather than a silently ignored setting.
+  `openai-completions`, the Responses APIs (`openai-responses`, `azure-openai-responses`) and
+  `anthropic-messages`; declaring it for any other API in `models.yml` is a config error rather than a
+  silently ignored setting. `openai-codex-responses` is excluded because that transport drops
+  caller-supplied parameters the Codex backend does not know (`{"detail":"Unsupported parameter: ..."}`).
 
 Image handling:
 
