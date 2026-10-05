@@ -1543,6 +1543,7 @@ export class AgentSession implements SettingsScope {
 			setPlanProposalHandler: handler => this.setPlanProposalHandler(handler),
 			waitForSessionMessagePersistence: message => this.#waitForSessionMessagePersistence(message),
 			localProtocolOptions: () => this.#localProtocolOptions(),
+			reconcileQueuedMessageDrain: () => this.#reconcileQueuedMessageDrain(),
 		};
 		this.#prewalk = new PrewalkCoordinator(prewalkHost, {
 			prewalk: config.prewalk,
