@@ -147,6 +147,12 @@ export interface SettingsHost {
 	get(path: string): unknown;
 	set(path: string, value: unknown): void;
 	/**
+	 * Whether a settings layer configures `path`, as opposed to {@link get} falling
+	 * back to the schema default. A row whose value only describes the current
+	 * state (a preset's own segment list) needs the two apart; `get` cannot tell.
+	 */
+	isConfigured(path: string): boolean;
+	/**
 	 * Removes the value from the global config: a project or other layer, or an environment
 	 * variable, that configures the setting still applies; otherwise the default does.
 	 */

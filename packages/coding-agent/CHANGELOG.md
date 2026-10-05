@@ -33,6 +33,13 @@
 - Fixed snapcompact's short final frames preventing vision-backed sessions from continuing on backends that reject 32px-or-smaller images ([#14355](https://github.com/can1357/oh-my-pi/issues/14355)).
 - Fixed the agent's `goal` calls asking for approval under `--approval-mode write`, which paused goal-mode loops at `complete`; `always-ask` still prompts for goal changes but not `get` ([#14368](https://github.com/can1357/oh-my-pi/issues/14368))
 - Fixed MCP server connection progress popping up a toast for every server that connects or fails in native terminals such as Tern; it now shows only in the classic terminal transcript
+### Added
+
+- The status line can now be edited from the TUI: Appearance › Status Line › Center Bar picks the bar's segments as one ordered list, and `thinking` is a segment of its own so the effort level can sit anywhere on the bar ([#14303](https://github.com/can1357/oh-my-pi/pull/14303) by [@F0Rextasy](https://github.com/F0Rextasy)).
+
+### Fixed
+
+- Status line configs that set only `statusLine.leftSegments` and `statusLine.rightSegments` silently losing their whole right half. The Center Bar list carried the old Custom baseline as its default, so the bar always re-split a list the user had never configured and the configured halves were never reached ([#14303](https://github.com/can1357/oh-my-pi/pull/14303) by [@F0Rextasy](https://github.com/F0Rextasy)).
 
 ## [18.6.1] - 2026-10-04
 

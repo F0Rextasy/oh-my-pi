@@ -348,7 +348,6 @@ import {
 	cfgStatusLineCompactThinkingLevel,
 	cfgStatusLineContextLine,
 	cfgStatusLineLeftSegments,
-	cfgStatusLineSegments,
 	cfgStatusLinePreset,
 	cfgStatusLineRightSegments,
 	cfgStatusLineSegmentOptions,
@@ -370,6 +369,7 @@ import {
 	cfgTuiTitleState,
 	cfgTuiVimMode,
 	cfgTuiVimModeDisplay,
+	statusLineCenterBarSegments,
 } from "./settings";
 import { cfgTasksTodoClearDelay } from "../tools/settings";
 import { cfgProseOnlyThinking } from "../session/settings";
@@ -3568,10 +3568,10 @@ export class InteractiveMode implements InteractiveModeContext {
 	#syncStatusLineSettings(): void {
 		this.statusLine.updateSettings({
 			preset: cfgStatusLinePreset.get(settings),
-			// The list the user actually edits. Without it the live bar kept
-			// reading the preset's own halves, so every segment edit was applied to
-			// the preview and dropped again on the real bar.
-			segments: cfgStatusLineSegments.get(settings),
+			// The list the user actually edits, and only once they have edited it.
+			// The schema default would otherwise re-split itself over the two halves
+			// and drop the right side of a bar they had configured.
+			segments: statusLineCenterBarSegments(settings),
 			leftSegments: cfgStatusLineLeftSegments.get(settings),
 			rightSegments: cfgStatusLineRightSegments.get(settings),
 			separator: cfgStatusLineSeparator.get(settings),

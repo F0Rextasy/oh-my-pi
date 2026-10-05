@@ -596,6 +596,24 @@ export interface StatusLinePreviewSettings {
 	compactThinkingLevel?: boolean;
 }
 
+/**
+ * The segment list the Center Bar row offers.
+ *
+ * The bar is written as one list but is drawn from the preset until the first
+ * edit switches it to `custom`. With nothing configured the row showed the
+ * schema default, which described a bar nobody was looking at: on `default` it
+ * listed six segments while the bar drew twelve. Showing the active preset's
+ * own order instead means the first edit commits exactly what is already on
+ * screen, so the row stops being a way to lose segments.
+ */
+export function centerBarSegments(settings: SettingsHost): StatusLineSegmentId[] {
+	if (settings.isConfigured("statusLine.segments")) {
+		return (settings.get("statusLine.segments") ?? []) as StatusLineSegmentId[];
+	}
+	const preset = getPreset(settings.get("statusLine.preset") as StatusLinePreset);
+	return [...preset.leftSegments, ...preset.rightSegments];
+}
+
 export interface SettingsCallbacks {
 	/** Called when any setting value changes */
 	onChange: (path: string, newValue: unknown) => void;
@@ -1550,10 +1568,15 @@ export class SettingsSelectorComponent implements Component {
 	 * Get the current value for a setting.
 	 */
 	#getCurrentValue(def: SettingDef): unknown {
+		if (def.path === "statusLine.segments") return centerBarSegments(this.#context.settings);
 		return this.#context.settings.get(def.path);
 	}
 
 	#isChanged(def: SettingDef, currentValue: unknown): boolean {
+		// The Center Bar row shows the preset it is not overriding, so an untouched
+		// row must not read as edited. Once the user configures the list, the
+		// comparison against the schema default is the honest one again.
+		if (def.path === "statusLine.segments" && !this.#context.settings.isConfigured(def.path)) return false;
 		const defaultValue: unknown = def.defaultValue;
 		if (Array.isArray(currentValue) && Array.isArray(defaultValue)) {
 			return (
@@ -1650,20 +1673,6 @@ export class SettingsSelectorComponent implements Component {
 					contextLine: this.#context.settings.get("statusLine.contextLine") as ContextLineMode,
 				});
 			};
-		} else if (def.path === "statusLine.leftSegments" || def.path === "statusLine.rightSegments") {
-			// The segment lists are the most-edited part of the status line, and
-			// picking them with no feedback means composing the bar blind. Both
-			// lists go out together because the bar draws them as one row.
-			const emitSegments = (): void => {
-				this.#callbacks.onStatusLinePreview?.({
-					preset: this.#context.settings.get("statusLine.preset") as StatusLinePreset,
-					leftSegments: this.#context.settings.get("statusLine.leftSegments") as StatusLineSegmentId[],
-					rightSegments: this.#context.settings.get("statusLine.rightSegments") as StatusLineSegmentId[],
-					separator: this.#context.settings.get("statusLine.separator") as StatusLineSeparatorStyle,
-				});
-			};
-			onPreview = emitSegments;
-			onPreviewCancel = emitSegments;
 		} else if (def.path === "snapcompact.shape") {
 			const shapePreview = new SnapcompactShapePreview(currentValue, {
 				model: this.#context.model,
@@ -1758,7 +1767,9 @@ export class SettingsSelectorComponent implements Component {
 	}
 
 	#createMultiSelect(def: SettingDef & { type: "multiselect" }, done: (value?: string) => void): Container {
-		const current: unknown = this.#context.settings.get(def.path);
+		// The editor opens on what the row displays, so an unset Center Bar list
+		// starts from the preset's own segments rather than from the schema default.
+		const current: unknown = this.#getCurrentValue(def);
 		const initial = Array.isArray(current)
 			? current.filter((entry): entry is string => typeof entry === "string")
 			: [];

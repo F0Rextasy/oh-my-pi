@@ -143,6 +143,7 @@ import {
 	cfgStatusLineShowHookStatus,
 	cfgStatusLineTransparent,
 	cfgTreeFilterMode,
+	statusLineCenterBarSegments,
 } from "../settings";
 import { cfgTaskAgentModelOverrides } from "../../task/settings";
 
@@ -296,7 +297,7 @@ export class SelectorController {
 						// Update status line with preview settings
 						this.ctx.statusLine.updateSettings({
 							preset: cfgStatusLinePreset.get(settings),
-							segments: cfgStatusLineSegments.get(settings),
+							segments: statusLineCenterBarSegments(settings),
 							separator: cfgStatusLineSeparator.get(settings),
 							showHookStatus: cfgStatusLineShowHookStatus.get(settings),
 							sessionAccent: cfgStatusLineSessionAccent.get(settings),
@@ -328,7 +329,7 @@ export class SelectorController {
 						// Restore status line to saved settings
 						this.ctx.statusLine.updateSettings({
 							preset: cfgStatusLinePreset.get(settings),
-							segments: cfgStatusLineSegments.get(settings),
+							segments: statusLineCenterBarSegments(settings),
 							separator: cfgStatusLineSeparator.get(settings),
 							showHookStatus: cfgStatusLineShowHookStatus.get(settings),
 							sessionAccent: cfgStatusLineSessionAccent.get(settings),

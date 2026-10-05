@@ -12,7 +12,6 @@ import {
 	cfgStatusLineCompactThinkingLevel,
 	cfgStatusLineContextLine,
 	cfgStatusLineLeftSegments,
-	cfgStatusLineSegments,
 	cfgStatusLinePreset,
 	cfgStatusLineRightSegments,
 	cfgStatusLineSegmentOptions,
@@ -21,6 +20,7 @@ import {
 	cfgStatusLineShowHookStatus,
 	cfgStatusLineTransparent,
 	cfgTuiCodexResetFireworks,
+	statusLineCenterBarSegments,
 } from "./settings";
 import { cfgGoalStatusInFooter } from "../goals/settings";
 
@@ -36,10 +36,12 @@ export type StatusLineHostSession = StatusLineSession &
 export const statusLineHost: StatusLineHost<StatusLineHostSession> = {
 	getSettings: () => ({
 		preset: cfgStatusLinePreset.get(settings),
-		// The list the settings overlay writes. This host is what the live bar
-		// reads every frame; without the merged list here the user's edits only
-		// ever reached the preview.
-		segments: cfgStatusLineSegments.get(settings),
+		// The list the settings overlay writes, and only when a layer configured
+		// one. This host is what the live bar reads every frame; passing the
+		// schema default instead would make a bar nobody configured look set, and
+		// `custom` would then re-split that default over the two halves the user
+		// did configure.
+		segments: statusLineCenterBarSegments(settings),
 		leftSegments: cfgStatusLineLeftSegments.get(settings),
 		rightSegments: cfgStatusLineRightSegments.get(settings),
 		separator: cfgStatusLineSeparator.get(settings),

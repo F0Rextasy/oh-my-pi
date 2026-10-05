@@ -1,4 +1,4 @@
-import { combine, effect, register, type Setting } from "../config/registry";
+import { combine, effect, register, type ScopeLike, type Setting } from "../config/registry";
 import { formatKeyHint, formatKeyHints } from "@oh-my-pi/pi-tui/app-keybindings";
 import { cfgReadToolResultPreview } from "../tools/settings";
 import { MAGIC_KEYWORDS, type MagicKeywordId } from "./magic-keywords";
@@ -10,7 +10,7 @@ import {
 	STATUS_LINE_SEGMENT_IDS,
 	STATUS_LINE_SEPARATOR_VALUES,
 } from "@oh-my-pi/pi-tui/status-line/schema";
-import type { StatusLineSegmentId } from "@oh-my-pi/pi-tui/status-line/types";
+import type { StatusLineSegmentId, StatusLineSettings } from "@oh-my-pi/pi-tui/status-line/types";
 import { setChatTranscriptDisplayPreferences } from "@oh-my-pi/pi-tui/chat/display-preferences";
 import { setEditorGapComposerShape } from "@oh-my-pi/pi-tui/prompt/editor-top-gap";
 import { setEmojiAutocompleteEnabled } from "@oh-my-pi/pi-tui/prompt/prompt-action-autocomplete";
@@ -286,10 +286,7 @@ export const cfgStatusLineShowHookStatus = register({
  * without declared options stay config-file only"), which is why the two
  * segment lists were reachable only by hand-editing `config.yml`.
  */
-const STATUS_LINE_SEGMENT_LABELS: Record<
-	StatusLineSegmentId,
-	{ label: string; description: string }
-> = {
+const STATUS_LINE_SEGMENT_LABELS: Record<StatusLineSegmentId, { label: string; description: string }> = {
 	pi: { label: "Agent", description: "omp brand glyph with working spinner and turn timer" },
 	status: { label: "Extension statuses", description: "Status text set by extensions and hooks" },
 	thinking: { label: "Thinking level", description: "Reasoning effort for the served model" },
@@ -348,10 +345,29 @@ export const cfgStatusLineSegments = register({
 		tab: "appearance",
 		group: "Status Line",
 		label: "Center Bar",
-		description: "The whole bar as one list, in order. Segments every omp preset puts at the right end take that end; the rest fill from the left.",
+		description:
+			"The whole bar as one list, in order. Segments every omp preset puts at the right end take that end; the rest fill from the left.",
 		options: STATUS_LINE_SEGMENT_OPTIONS,
 	},
 });
+
+/**
+ * The Center Bar list as the bar has to read it, or `undefined` when no layer
+ * configures one.
+ *
+ * `cfgStatusLineSegments` carries the old `custom` baseline as its schema
+ * default so the settings row has something to show before anything is
+ * configured, and that default made the value indistinguishable from one the
+ * user wrote. The bar then re-split a list nobody configured, which is how a
+ * config carrying only `statusLine.leftSegments` / `rightSegments` silently lost
+ * its whole right half: the merged list was never falsy, so the fallback to
+ * those two halves could not run. Unset has to stay unset here; the settings
+ * row shows the active preset's own order instead.
+ */
+export function statusLineCenterBarSegments(scope: ScopeLike): StatusLineSettings["segments"] {
+	const target = "settings" in scope ? scope.settings : scope;
+	return target.isConfigured(cfgStatusLineSegments) ? cfgStatusLineSegments.get(target) : undefined;
+}
 
 export const cfgStatusLineSegmentOptions = register({
 	id: "statusLine.segmentOptions",

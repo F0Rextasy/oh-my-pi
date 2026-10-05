@@ -2,10 +2,7 @@ import { beforeAll, afterEach, describe, expect, it } from "bun:test";
 import { CommandController } from "@oh-my-pi/pi-coding-agent/modes/controllers/command-controller";
 import { initTheme } from "@oh-my-pi/pi-tui/theme";
 import type { InteractiveModeContext } from "@oh-my-pi/pi-coding-agent/modes/types";
-import {
-	cfgStatusLinePreset,
-	cfgStatusLineSegments,
-} from "@oh-my-pi/pi-coding-agent/modes/settings";
+import { cfgStatusLinePreset, cfgStatusLineSegments } from "@oh-my-pi/pi-coding-agent/modes/settings";
 
 /**
  * `/new` must not touch the status line's settings.
@@ -60,7 +57,7 @@ function countBarWrites(): () => number {
 	] as const;
 	const patched = originals.map(([setting, method]) => {
 		const original = setting[method] as (...args: unknown[]) => unknown;
-		(setting as Record<string, unknown>)[method] = (...args: unknown[]) => {
+		(setting as unknown as Record<string, unknown>)[method] = (...args: unknown[]) => {
 			writes++;
 			return original.apply(setting, args);
 		};
@@ -68,7 +65,7 @@ function countBarWrites(): () => number {
 	});
 	afterEach(() => {
 		for (const [setting, method, original] of patched) {
-			(setting as Record<string, unknown>)[method] = original;
+			(setting as unknown as Record<string, unknown>)[method] = original;
 		}
 	});
 	return () => writes;
@@ -89,7 +86,7 @@ describe("/new and status line settings", () => {
 	it("writes no bar setting while clearing the context in place", async () => {
 		const writes = countBarWrites();
 		const harness = makeHarness();
-		harness.ctx.session.resetSessionContext = async () => true;
+		harness.ctx.session.resetSessionContext = async () => ({ droppedCount: 0 });
 
 		await harness.controller.handleResetContextCommand();
 

@@ -37,6 +37,13 @@ export interface CollabStatus {
 
 export interface StatusLineSegmentOptions {
 	model?: { showThinkingLevel?: boolean };
+	/**
+	 * The `thinking` segment's own options. It carries nothing beyond `show`
+	 * today, but it needs a namespace of its own: reading the model one made the
+	 * Model row's thinking switch blank this segment as well, and left the model
+	 * segment printing a level nobody had asked for once both sat on the bar.
+	 */
+	thinking?: { show?: boolean };
 	path?: { abbreviate?: boolean; maxLength?: number; stripWorkPrefix?: boolean };
 	git?: { showBranch?: boolean; showStaged?: boolean; showUnstaged?: boolean; showUntracked?: boolean };
 	time?: { format?: "12h" | "24h"; showSeconds?: boolean };

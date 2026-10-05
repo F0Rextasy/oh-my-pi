@@ -291,11 +291,10 @@ export function thinkingLevelWord(
 	return state.thinkingLevel ?? ThinkingLevel.Off;
 }
 
-/** Thinking-level display ("◉ xhigh", "⟳ auto", …), or "" when hidden or unsupported. */
-function modelThinkingDisplay(ctx: SegmentContext): string {
+/** Thinking-level display ("◉ xhigh", "⟳ auto", …), or "" when the model has no thinking. */
+function thinkingLevelDisplay(ctx: SegmentContext): string {
 	const state = ctx.session.state;
-	const opts = ctx.options.model ?? {};
-	if (opts.showThinkingLevel === false || !state.model?.thinking) return "";
+	if (!state.model?.thinking) return "";
 	if (ctx.session.isAutoThinking) {
 		// Pending (no turn classified yet / classifying) shows a symbol-theme
 		// question-box marker; once resolved it shows `<level>`.
@@ -308,6 +307,12 @@ function modelThinkingDisplay(ctx: SegmentContext): string {
 	return level === ThinkingLevel.Off
 		? `${theme.status.disabled} off`
 		: (theme.thinking[level as keyof Theme["thinking"]] ?? level);
+}
+
+/** The same display, gated on the model segment's own option. */
+function modelThinkingDisplay(ctx: SegmentContext): string {
+	if (ctx.options.model?.showThinkingLevel === false) return "";
+	return thinkingLevelDisplay(ctx);
 }
 
 /**
@@ -1281,18 +1286,22 @@ const usageSegment: StatusLineSegment = {
  * `showThinkingLevel` option, which put it behind the model's own settings and
  * made it impossible to place anywhere else in the bar. Split out, it can sit
  * where it reads best and be turned on without touching the model row.
+ *
+ * It reads `thinking.show`, its own option, and not the model segment's: sharing
+ * that namespace meant the Model row's thinking switch blanked this segment too,
+ * and putting both on the bar printed the same level twice.
  */
 const thinkingSegment: StatusLineSegment = {
 	id: "thinking",
 	render(ctx) {
-		const display = modelThinkingDisplay(ctx);
+		const display = ctx.options.thinking?.show === false ? "" : thinkingLevelDisplay(ctx);
 		if (!display) return { content: "", visible: false };
 		// Same colour family as the model so the two read as one idea, and the
 		// level's own glyph leads so a wide model name cannot bury it.
 		return { content: theme.fg("statusLineModel", display), visible: true };
 	},
 	describe(ctx) {
-		const display = modelThinkingDisplay(ctx);
+		const display = ctx.options.thinking?.show === false ? "" : thinkingLevelDisplay(ctx);
 		return display ? segView([span(display, "statusLineModel")]) : null;
 	},
 };

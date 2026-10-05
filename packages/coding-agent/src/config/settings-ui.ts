@@ -75,6 +75,7 @@ export function createSettingsHost(): SettingsHost {
 		entries,
 		get: path => lookup(path)?.layered(settings),
 		set: (path, value) => resolve(path).set(settings, value),
+		isConfigured: path => resolve(path).isConfigured(settings),
 		unset: path => resolve(path).unset(settings),
 		normalizeProviderLimits: normalizeProviderMaxInFlightRequests,
 		validateProviderLimits: validateProviderMaxInFlightRequests,

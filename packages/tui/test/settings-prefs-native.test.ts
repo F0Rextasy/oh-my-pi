@@ -72,13 +72,24 @@ interface Harness {
 
 function harness(initial: Record<string, unknown> = {}): Harness {
 	const values = new Map<string, unknown>();
+	const configured = new Set<string>();
 	for (const entry of ENTRIES) values.set(entry.path, entry.defaultValue);
-	for (const key in initial) values.set(key, initial[key]);
+	for (const key in initial) {
+		values.set(key, initial[key]);
+		configured.add(key);
+	}
 	const settings: SettingsHost = {
 		entries: ENTRIES,
 		get: path => values.get(path),
-		set: (path, value) => void values.set(path, value),
-		unset: path => void values.set(path, ENTRIES.find(entry => entry.path === path)?.defaultValue),
+		set: (path, value) => {
+			values.set(path, value);
+			configured.add(path);
+		},
+		isConfigured: path => configured.has(path),
+		unset: path => {
+			values.set(path, ENTRIES.find(entry => entry.path === path)?.defaultValue);
+			configured.delete(path);
+		},
 		normalizeProviderLimits: () => ({}),
 		validateProviderLimits: () => ({}),
 	};
