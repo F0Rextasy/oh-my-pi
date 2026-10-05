@@ -12,10 +12,14 @@ import {
 	cfgStatusLineLeftSegments,
 	cfgStatusLinePreset,
 	cfgStatusLineRightSegments,
+	cfgStatusLineSegments,
 } from "../src/modes/settings";
 import type { InteractiveModeContext } from "../src/modes/types";
 import { StatusLineComponent } from "@oh-my-pi/pi-tui/status-line";
 import { STATUS_LINE_PRESETS } from "@oh-my-pi/pi-tui/status-line/presets";
+import { BUILTIN_MODE_SLASH_COMMANDS } from "../src/slash-commands/builtin-modes";
+import type { TuiSlashCommandRuntime } from "../src/slash-commands/types";
+import { getSettingDef } from "@oh-my-pi/pi-tui/overlays/settings-defs";
 import { centerBarSegments } from "@oh-my-pi/pi-tui/overlays/settings-selector";
 import { initTheme } from "@oh-my-pi/pi-tui/theme";
 import { removeSyncWithRetries, setProjectDir } from "@oh-my-pi/pi-utils";
@@ -156,5 +160,33 @@ describe("status line center bar", () => {
 		expect(after.content).toContain("25%");
 		expect(after.content).toContain("$4.56");
 		expect(after.content).toContain("Sonnet 5");
+	});
+
+	// `/statusline` exists to land the user on the segment chooser. It named a
+	// path that declares no `ui` metadata, so no row exists for it and the
+	// selector opened on the first Appearance row instead, Dark Theme. Dispatch
+	// the command the way the user does and check the path it passes actually
+	// resolves to a row, so a future rename cannot silently break the link again.
+	it("deep-links /statusline to the Center Bar row", async () => {
+		const command = BUILTIN_MODE_SLASH_COMMANDS.find(entry => entry.name === "statusline");
+		if (!command?.handleTui) throw new Error("/statusline has no TUI handler");
+		const focusPaths: (string | undefined)[] = [];
+		const runtime = {
+			draftDetached: true,
+			ctx: {
+				settings: Settings.instance,
+				showSettingsSelector: (path?: string) => void focusPaths.push(path),
+				showStatus: () => {},
+				statusLine: { invalidate: () => {} },
+				ui: { requestRender: () => {} },
+			},
+		} as unknown as TuiSlashCommandRuntime;
+
+		await command.handleTui({ name: "statusline", args: "", text: "statusline" }, runtime);
+
+		expect(focusPaths).toEqual([cfgStatusLineSegments.id]);
+		const def = getSettingDef(createSettingsHost().entries, focusPaths[0] ?? "");
+		if (!def) throw new Error(`/statusline targets ${focusPaths[0]}, which is not a settings row`);
+		expect(def.label).toBe("Center Bar");
 	});
 });

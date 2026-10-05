@@ -32,6 +32,7 @@
 ### Fixed
 
 - Status line configs that set only `statusLine.leftSegments` and `statusLine.rightSegments` silently losing their whole right half. The Center Bar list carried the old Custom baseline as its default, so the bar always re-split a list the user had never configured and the configured halves were never reached ([#14397](https://github.com/can1357/oh-my-pi/pull/14397) by [@F0Rextasy](https://github.com/F0Rextasy)).
+- `/statusline` opening the settings overlay on Dark Theme instead of the Center Bar row. It named `statusLine.leftSegments`, which carries no panel metadata and therefore has no row to land on, so the deep link resolved to nothing and the bounded retry gave up silently ([#14397](https://github.com/can1357/oh-my-pi/pull/14397) by [@F0Rextasy](https://github.com/F0Rextasy)).
 
 ## [18.6.2] - 2026-10-04
 

@@ -358,9 +358,12 @@ export const BUILTIN_MODE_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpec> = [
 				runtime.ctx.showStatus("Status line restored to omp's defaults.");
 				return;
 			}
-			// Land on Left Segments directly: `/settings` opens on the first tab's
-			// first row, which is nowhere near the segment chooser.
-			runtime.ctx.showSettingsSelector("statusLine.leftSegments");
+			// Land on the Center Bar row directly: `/settings` opens on the first
+			// tab's first row, which is nowhere near the segment chooser. The two
+			// half-lists are not a target: they declare no `ui` metadata, so they
+			// produce no row, and naming one left the selector silently opening on
+			// Dark Theme instead.
+			runtime.ctx.showSettingsSelector(cfgStatusLineSegments.id);
 		},
 	},
 	{
