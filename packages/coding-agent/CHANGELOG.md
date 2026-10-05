@@ -25,6 +25,11 @@
 - Fixed a mermaid `xychart` whose axis range is finer than floating-point precision freezing the terminal ([#14454](https://github.com/can1357/oh-my-pi/pull/14454) by [@H4vC](https://github.com/H4vC))
 - Fixed resuming a session whose saved model cannot be restored silently sending its transcript to another model. At startup, `--continue`/`--resume` in print, JSON, RPC, and `rpc-ui` modes (and in the TUI with `retry.modelFallback: false`) now exits with an error naming the model instead of using the settings-default or first available model. At runtime, RPC `open_session` and `switch_session`, ACP session load and fork, and extension session switches fail with `Could not restore model <provider/id>` and keep the current session instead of continuing on the current model; TUI `/resume` warns `Could not restore model <provider/id>. Using <provider/id>`, or fails with the error when `retry.modelFallback` is off. `/resume` also restores models from discovery-backed providers the way startup does ([#12274](https://github.com/can1357/oh-my-pi/issues/12274), [#13689](https://github.com/can1357/oh-my-pi/pull/13689) by [@alphastorm](https://github.com/alphastorm)).
 - Auto-retry no longer switches to the fallback chain when Codex's native turn lane rejects live steering after the response streamed reasoning; the turn retries on the same model with the steering message as ordinary input, and the chain is consulted only once no same-model retry is left ([#14242](https://github.com/can1357/oh-my-pi/pull/14242) by [@alphastorm](https://github.com/alphastorm))
+### Fixed
+
+- Fixed unreadable directories being reported as empty ones: an `EACCES`, `EPERM`, `ENOTDIR` or `EMFILE` hit while scanning Claude, Codex, advisor, memory or task-agent directories now surfaces as a visible error or warning instead of zero sessions or zero memories with exit 0. An absent directory still reports empty and stays quiet, and memory pruning no longer deletes a skill subtree it failed to read ([#11476](https://github.com/can1357/oh-my-pi/issues/11476))
+- Fixed memory consolidation skipping its stale-summary sweep silently, and an unreadable `rollout_summaries` directory being passed to the consolidation model as `No rollout summaries yet.`, which made it write `MEMORY.md` from a corpus it never read. It now reports the failed read and states the corpus is unknown ([#11476](https://github.com/can1357/oh-my-pi/issues/11476))
+- Fixed task-agent discovery warnings being dropped by the task tool, so an agent directory that could not be read silently shortened the agent list the model chooses from. The tool description now states that the list is incomplete and names the unreadable directories ([#11476](https://github.com/can1357/oh-my-pi/issues/11476))
 
 ## [18.6.2] - 2026-10-04
 
@@ -33,9 +38,6 @@
 - Fixed snapcompact's short final frames preventing vision-backed sessions from continuing on backends that reject 32px-or-smaller images ([#14355](https://github.com/can1357/oh-my-pi/issues/14355)).
 - Fixed the agent's `goal` calls asking for approval under `--approval-mode write`, which paused goal-mode loops at `complete`; `always-ask` still prompts for goal changes but not `get` ([#14368](https://github.com/can1357/oh-my-pi/issues/14368))
 - Fixed MCP server connection progress popping up a toast for every server that connects or fails in native terminals such as Tern; it now shows only in the classic terminal transcript
-### Fixed
-
-- Fixed unreadable directories being reported as empty ones: an `EACCES`, `EPERM`, `ENOTDIR` or `EMFILE` hit while scanning Claude, Codex, advisor, memory or task-agent directories now surfaces as a visible error or warning instead of zero sessions or zero memories with exit 0. An absent directory still reports empty and stays quiet, and memory pruning no longer deletes a skill subtree it failed to read ([#11476](https://github.com/can1357/oh-my-pi/issues/11476))
 
 ## [18.6.1] - 2026-10-04
 

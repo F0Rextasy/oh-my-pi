@@ -4,7 +4,7 @@
  * `fs.readdir(dir).catch(() => [])` maps every failure onto the same empty
  * array a genuinely empty directory produces, so `EACCES`, `EPERM`, `ENOTDIR`
  * and `EMFILE` all report "nothing here" to the user. Every caller of
- * {@link readDirEntries} gets the real error instead and decides how to surface
+ * {@link readDirOutcome} gets the real error instead and decides how to surface
  * it, which keeps a failed scan from being mistaken for an empty one.
  */
 import type { Dirent } from "node:fs";

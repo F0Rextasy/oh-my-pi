@@ -505,6 +505,13 @@ async function runPhase2(options: MemoryStartupOptions): Promise<void> {
 	const nowSec = unixNow();
 	const workerId = `memory-${process.pid}`;
 	const memoryRoot = getMemoryRoot(agentDir, cwd);
+	// A consolidation scan that could not read its own tree must reach the user,
+	// not just the log file: otherwise an unreadable memories root silently
+	// reports zero skills or an empty rollout-summary corpus.
+	const warnScan = (message: string) => {
+		logger.warn("Memory consolidation directory scan failed", { message });
+		session.emitNotice?.("warning", message, "Memory");
+	};
 
 	try {
 		const claimResult = tryClaimGlobalPhase2Job(db, {
@@ -519,7 +526,7 @@ async function runPhase2(options: MemoryStartupOptions): Promise<void> {
 		const outputs = listStage1OutputsForGlobal(db, config.maxRawMemoriesForGlobal, cwd);
 		const newWatermark = computeCompletionWatermark(claim.inputWatermark, outputs);
 
-		await syncPhase2Artifacts(memoryRoot, outputs);
+		await syncPhase2Artifacts(memoryRoot, outputs, warnScan);
 		if (!isMemoryStartupActive(options)) return;
 		if (outputs.length === 0) {
 			await cleanupConsolidatedArtifacts(memoryRoot);
@@ -591,15 +598,10 @@ async function runPhase2(options: MemoryStartupOptions): Promise<void> {
 				apiKey: modelRegistry.resolver(phase2Model, session.sessionId),
 				sessionId: session.sessionId,
 				metadata: session.agent?.metadataForProvider(phase2Model.provider),
+				warn: warnScan,
 			});
 			if (!isMemoryStartupActive(options)) return;
-			await applyConsolidation(memoryRoot, consolidated, message => {
-				// A consolidation scan that could not read its own tree must reach
-				// the user, not the log file: otherwise an unreadable memories root
-				// silently reports zero skills.
-				logger.warn("Memory consolidation directory scan failed", { message });
-				session.emitNotice?.("warning", message, "Memory");
-			});
+			await applyConsolidation(memoryRoot, consolidated, warnScan);
 			if (!isMemoryStartupActive(options)) return;
 			if (heartbeatLostOwnership) {
 				throw new Error("Phase2 lease ownership lost before completion");
@@ -855,7 +857,11 @@ async function runStage1Job(options: {
 	}
 }
 
-async function syncPhase2Artifacts(memoryRoot: string, outputs: Stage1OutputRow[]): Promise<void> {
+async function syncPhase2Artifacts(
+	memoryRoot: string,
+	outputs: Stage1OutputRow[],
+	warn: (message: string) => void,
+): Promise<void> {
 	const summariesDir = path.join(memoryRoot, "rollout_summaries");
 	await fs.mkdir(summariesDir, { recursive: true });
 
@@ -870,11 +876,17 @@ async function syncPhase2Artifacts(memoryRoot: string, outputs: Stage1OutputRow[
 		await Bun.write(path.join(summariesDir, filename), `${body.trim()}\n`);
 	}
 
-	const currentFiles = await fs.readdir(summariesDir).catch(() => [] as string[]);
-	for (const file of currentFiles) {
-		if (!file.endsWith(".md")) continue;
-		if (keepFiles.has(file)) continue;
-		await fs.rm(path.join(summariesDir, file), { force: true });
+	const scanned = await readDirOutcome(summariesDir);
+	if (scanned.status === "error") {
+		// Skipping the sweep leaves a stale summary behind, which is the safe
+		// direction. Pruning from an unreadable listing would delete live ones.
+		warn(describeReadDirFailure(summariesDir, scanned.error));
+	} else if (scanned.status === "ok") {
+		for (const entry of scanned.entries) {
+			if (!entry.name.endsWith(".md")) continue;
+			if (keepFiles.has(entry.name)) continue;
+			await fs.rm(path.join(summariesDir, entry.name), { force: true });
+		}
 	}
 
 	const rawBody = buildRawMemoriesMarkdown(outputs);
@@ -899,11 +911,26 @@ function buildRawMemoriesMarkdown(outputs: Stage1OutputRow[]): string {
 	return `# Raw Memories\n\n${blocks.join("\n")}`;
 }
 
-async function readRolloutSummaries(memoryRoot: string): Promise<string> {
+/** The rollout-summary corpus, or why it could not be read. Never an empty result for a failed read. */
+type RolloutSummariesRead = { status: "ok"; text: string } | { status: "error"; message: string };
+
+async function readRolloutSummaries(
+	memoryRoot: string,
+	warn: (message: string) => void,
+): Promise<RolloutSummariesRead> {
 	const summariesDir = path.join(memoryRoot, "rollout_summaries");
-	const names = await fs.readdir(summariesDir).catch(() => [] as string[]);
+	const scanned = await readDirOutcome(summariesDir);
+	// "No rollout summaries yet." would tell the consolidation model the corpus is
+	// empty, and it writes MEMORY.md from that premise, so a failed read has to
+	// stay distinguishable from an absent one all the way into the prompt.
+	if (scanned.status === "error") {
+		const message = describeReadDirFailure(summariesDir, scanned.error);
+		warn(message);
+		return { status: "error", message };
+	}
+	const names = scanned.status === "ok" ? scanned.entries.map(entry => entry.name) : [];
 	const summaryNames = names.filter(name => name.endsWith(".md")).sort((a, b) => a.localeCompare(b));
-	if (summaryNames.length === 0) return "No rollout summaries yet.";
+	if (summaryNames.length === 0) return { status: "ok", text: "No rollout summaries yet." };
 
 	const blocks: string[] = [];
 	for (const name of summaryNames) {
@@ -913,8 +940,8 @@ async function readRolloutSummaries(memoryRoot: string): Promise<string> {
 		if (!text.trim()) continue;
 		blocks.push(`--- ${name} ---\n${text.trim()}`);
 	}
-	if (blocks.length === 0) return "No rollout summaries yet.";
-	return blocks.join("\n\n");
+	if (blocks.length === 0) return { status: "ok", text: "No rollout summaries yet." };
+	return { status: "ok", text: blocks.join("\n\n") };
 }
 
 async function runConsolidationModel(options: {
@@ -923,6 +950,7 @@ async function runConsolidationModel(options: {
 	apiKey: ApiKey;
 	sessionId: string;
 	metadata?: Record<string, unknown>;
+	warn: (message: string) => void;
 }): Promise<{
 	memoryMd: string;
 	memorySummary: string;
@@ -936,10 +964,12 @@ async function runConsolidationModel(options: {
 }> {
 	const { memoryRoot, model, apiKey } = options;
 	const rawMemories = await Bun.file(path.join(memoryRoot, "raw_memories.md")).text();
-	const rolloutSummaries = await readRolloutSummaries(memoryRoot);
+	const rolloutSummaries = await readRolloutSummaries(memoryRoot, options.warn);
 	const input = prompt.render(consolidationTemplate, {
 		raw_memories: truncateByApproxTokens(rawMemories, 20_000),
-		rollout_summaries: truncateByApproxTokens(rolloutSummaries, 12_000),
+		rollout_summaries: rolloutSummaries.status === "ok" ? truncateByApproxTokens(rolloutSummaries.text, 12_000) : "",
+		rollout_summaries_unavailable: rolloutSummaries.status === "error",
+		rollout_summaries_error: rolloutSummaries.status === "error" ? rolloutSummaries.message : "",
 	});
 
 	const response = await retryTransientCompletion(

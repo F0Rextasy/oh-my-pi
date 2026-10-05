@@ -501,6 +501,122 @@ describe("memories runtime", () => {
 		// And the failure must reach the user, not just the log file.
 		expect(notice.mock.calls.some(call => String(call[1]).includes("Could not read directory"))).toBe(true);
 	});
+
+	/** Stage one output plus a dirty watermark, so phase2 runs its consolidation pass. */
+	function seedPhase2(fx: SessionFixture): void {
+		const db = memoryStorage.openMemoryDb(getAgentDbPath(fx.agentDir));
+		memoryStorage.upsertThreads(db, [
+			{
+				id: "thread-a",
+				updatedAt: 100,
+				rolloutPath: "/tmp/a.jsonl",
+				cwd: fx.session.sessionManager.getCwd(),
+				sourceKind: "cli",
+			},
+		]);
+		db.prepare(
+			"INSERT INTO stage1_outputs (thread_id, source_updated_at, raw_memory, rollout_summary, rollout_slug, generated_at) VALUES (?, ?, ?, ?, ?, ?)",
+		).run("thread-a", 100, "raw-a", "summary-a", "alpha", 100);
+		memoryStorage.enqueueGlobalWatermark(db, 100, fx.session.sessionManager.getCwd(), {
+			forceDirtyWhenNotAdvanced: true,
+		});
+		memoryStorage.closeMemoryDb(db);
+	}
+
+	test("an unreadable rollout_summaries directory is not reported to the consolidation model as empty", async () => {
+		const fx = await createFixture();
+		const completeSpy = vi.spyOn(ai, "completeSimple").mockResolvedValue({
+			stopReason: "end_turn",
+			content: [
+				{
+					type: "text",
+					text: JSON.stringify({ memory_md: "# Memory\n\nMerged", memory_summary: "Merged summary", skills: [] }),
+				},
+			],
+		} as any);
+		const notice = vi.fn();
+		fx.session.emitNotice = notice;
+
+		const memoryRoot = getMemoryRoot(fx.agentDir, fx.session.sessionManager.getCwd());
+		await fs.mkdir(path.join(memoryRoot, "rollout_summaries"), { recursive: true });
+		seedPhase2(fx);
+
+		const summariesDir = path.join(memoryRoot, "rollout_summaries");
+		const realReaddir = fs.readdir;
+		vi.spyOn(fs, "readdir").mockImplementation(((target: string, options?: unknown) => {
+			if (typeof target === "string" && path.resolve(target) === path.resolve(summariesDir)) {
+				const error: NodeJS.ErrnoException = new Error("EACCES: permission denied");
+				error.code = "EACCES";
+				return Promise.reject(error);
+			}
+			return (realReaddir as (...args: unknown[]) => Promise<unknown>)(target, options as never);
+		}) as never);
+
+		startMemoryStartupTask({
+			session: fx.session,
+			settings: fx.settings,
+			modelRegistry: fx.modelRegistry,
+			agentDir: fx.agentDir,
+			taskDepth: 0,
+		});
+
+		await settle(fx.whenSettled, "phase2 consolidation with unreadable summaries");
+
+		const phase2UserMessage = completeSpy.mock.calls[0]?.[1]?.messages?.[0];
+		const phase2Prompt =
+			(phase2UserMessage?.content as Array<{ type: string; text: string }> | undefined)?.[0]?.text ?? "";
+		expect(phase2Prompt).not.toContain("No rollout summaries yet.");
+		expect(phase2Prompt).toContain("UNAVAILABLE");
+		expect(phase2Prompt).toContain("EACCES");
+		expect(notice.mock.calls.some(call => String(call[1]).includes("Could not read directory"))).toBe(true);
+	});
+
+	test("an unreadable rollout_summaries directory skips the prune instead of deleting live summaries", async () => {
+		const fx = await createFixture();
+		vi.spyOn(ai, "completeSimple").mockResolvedValue({
+			stopReason: "end_turn",
+			content: [
+				{
+					type: "text",
+					text: JSON.stringify({ memory_md: "# Memory\n\nMerged", memory_summary: "Merged summary", skills: [] }),
+				},
+			],
+		} as any);
+		const notice = vi.fn();
+		fx.session.emitNotice = notice;
+
+		const memoryRoot = getMemoryRoot(fx.agentDir, fx.session.sessionManager.getCwd());
+		const summariesDir = path.join(memoryRoot, "rollout_summaries");
+		await fs.mkdir(summariesDir, { recursive: true });
+		const stale = path.join(summariesDir, "old.md");
+		await fs.writeFile(stale, "stale");
+		seedPhase2(fx);
+
+		const realReaddir = fs.readdir;
+		vi.spyOn(fs, "readdir").mockImplementation(((target: string, options?: unknown) => {
+			if (typeof target === "string" && path.resolve(target) === path.resolve(summariesDir)) {
+				const error: NodeJS.ErrnoException = new Error("EMFILE: too many open files");
+				error.code = "EMFILE";
+				return Promise.reject(error);
+			}
+			return (realReaddir as (...args: unknown[]) => Promise<unknown>)(target, options as never);
+		}) as never);
+
+		startMemoryStartupTask({
+			session: fx.session,
+			settings: fx.settings,
+			modelRegistry: fx.modelRegistry,
+			agentDir: fx.agentDir,
+			taskDepth: 0,
+		});
+
+		await settle(fx.whenSettled, "phase2 prune of unreadable summaries");
+
+		// Under-deletion is the safe direction here: the sweep is skipped whole
+		// rather than run against a listing it never got.
+		expect(await Bun.file(stale).exists()).toBe(true);
+		expect(notice.mock.calls.some(call => String(call[1]).includes("Could not read directory"))).toBe(true);
+	});
 });
 
 describe("buildMemoryToolDeveloperInstructions", () => {
