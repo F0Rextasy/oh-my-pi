@@ -605,13 +605,33 @@ export interface StatusLinePreviewSettings {
  * listed six segments while the bar drew twelve. Showing the active preset's
  * own order instead means the first edit commits exactly what is already on
  * screen, so the row stops being a way to lose segments.
+ *
+ * "Already on screen" is whatever `#computeEffectiveSettings` will draw, and
+ * that is not the same lookup for every preset. Only `custom` re-splits: it
+ * reads the merged list when one is configured and otherwise falls back to the
+ * two half-lists the caller may have set separately
+ * (`leftSegments ?? presetDef.leftSegments`). Every other preset ignores the
+ * halves entirely and draws its own explicit split, so its own order is the
+ * truth there. Flattening `getPreset("custom")` regardless would show the
+ * stock `CUSTOM_STATUS_LINE_DEFAULTS` over a bar drawing the user's own
+ * halves, and the first edit would commit that stock list over their config.
  */
 export function centerBarSegments(settings: SettingsHost): StatusLineSegmentId[] {
 	if (settings.isConfigured("statusLine.segments")) {
 		return (settings.get("statusLine.segments") ?? []) as StatusLineSegmentId[];
 	}
-	const preset = getPreset(settings.get("statusLine.preset") as StatusLinePreset);
-	return [...preset.leftSegments, ...preset.rightSegments];
+	const presetName = settings.get("statusLine.preset") as StatusLinePreset;
+	const preset = getPreset(presetName);
+	if (presetName !== "custom") {
+		return [...preset.leftSegments, ...preset.rightSegments];
+	}
+	// Mirrors the renderer's `this.#settings.leftSegments ?? presetDef.…`.
+	// Those getters return the schema default rather than undefined when unset,
+	// so this is the same value the bar reads, not a second guess at it.
+	const left = (settings.get("statusLine.leftSegments") as StatusLineSegmentId[] | undefined) ?? preset.leftSegments;
+	const right =
+		(settings.get("statusLine.rightSegments") as StatusLineSegmentId[] | undefined) ?? preset.rightSegments;
+	return [...left, ...right];
 }
 
 export interface SettingsCallbacks {

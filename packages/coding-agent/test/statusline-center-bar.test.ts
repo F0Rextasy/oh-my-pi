@@ -16,7 +16,7 @@ import {
 } from "../src/modes/settings";
 import type { InteractiveModeContext } from "../src/modes/types";
 import { StatusLineComponent } from "@oh-my-pi/pi-tui/status-line";
-import { STATUS_LINE_PRESETS } from "@oh-my-pi/pi-tui/status-line/presets";
+import { END_OF_BAR_SEGMENTS, STATUS_LINE_PRESETS } from "@oh-my-pi/pi-tui/status-line/presets";
 import { BUILTIN_MODE_SLASH_COMMANDS } from "../src/slash-commands/builtin-modes";
 import type { TuiSlashCommandRuntime } from "../src/slash-commands/types";
 import { getSettingDef } from "@oh-my-pi/pi-tui/overlays/settings-defs";
@@ -138,6 +138,95 @@ describe("status line center bar", () => {
 		expect(bar.content).toContain("Sonnet 5");
 		expect(bar.content).toContain("legacy-session");
 		expect(bar.content).toContain("9f3a1c77");
+	});
+
+	// The row has to offer the bar that is actually on screen, in every
+	// configuration, because the row's first edit is a write of the whole list.
+	// `custom` reads the two halves when no merged list is configured, so
+	// flattening the `custom` preset's stock order described a bar nobody was
+	// looking at: eight left and two right over a two-left, one-right bar, and
+	// the first edit committed that stock list over the configured halves.
+	// Asserted through the real store, host and component in all four states
+	// rather than against a literal, so a future change to the renderer's own
+	// fallback cannot quietly diverge from the row again.
+	const rowParityCases: Array<[string, () => void]> = [
+		[
+			"custom with only the legacy halves configured",
+			() => {
+				cfgStatusLinePreset.set(Settings.instance, "custom");
+				cfgStatusLineLeftSegments.set(Settings.instance, ["pi", "model"]);
+				cfgStatusLineRightSegments.set(Settings.instance, ["session_name"]);
+			},
+		],
+		[
+			"custom with a merged list configured",
+			() => {
+				cfgStatusLinePreset.set(Settings.instance, "custom");
+				cfgStatusLineSegments.set(Settings.instance, ["pi", "model", "cost", "session_name"]);
+			},
+		],
+		[
+			// Not a parity case, and deliberately kept out of the loop below.
+			// `custom` with nothing configured draws its halves from the
+			// schema defaults, whose right half holds `cost` and `context_pct`.
+			// Both are left-side segments on every preset, so
+			// `END_OF_BAR_SEGMENTS` excludes them and the row's flatten-then-split
+			// round trip hands them back on the left. The row is one list and the
+			// split is global, so it cannot express "these two are on the right".
+			// That is the limitation the PR body documents, and it is unchanged
+			// by the fallback fix: asserted on its own terms in the test below.
+			"custom with nothing configured",
+			() => cfgStatusLinePreset.set(Settings.instance, "custom"),
+		],
+		["default with nothing configured", () => cfgStatusLinePreset.set(Settings.instance, "default")],
+	];
+
+	for (const [label, configure] of rowParityCases.filter(([label]) => !label.startsWith("custom with nothing"))) {
+		it(`offers the segments the live bar draws: ${label}`, () => {
+			configure();
+
+			const bar = renderBar();
+			// The row is one list; the bar re-splits it on the end-of-bar set,
+			// so compare what the row would actually draw once saved.
+			const offered = centerBarSegments(createSettingsHost());
+
+			expect(offered.filter(segment => !END_OF_BAR_SEGMENTS.has(segment))).toEqual([...bar.left]);
+			expect(offered.filter(segment => END_OF_BAR_SEGMENTS.has(segment))).toEqual([...bar.right]);
+		});
+	}
+
+	// The one case parity cannot reach, pinned so it stays visible. The row
+	// offers the same *set* the bar draws, in left-then-right order, and loses
+	// only which end `cost` and `context_pct` sit on.
+	it("offers the custom halves as a set, losing only the end for left-side segments", () => {
+		cfgStatusLinePreset.set(Settings.instance, "custom");
+
+		const bar = renderBar();
+		const offered = centerBarSegments(createSettingsHost());
+
+		expect([...offered].sort()).toEqual([...bar.left, ...bar.right].sort());
+		// The bar keeps them on the right; the row's split cannot.
+		expect([...bar.right]).toContain("cost");
+		expect(offered.filter(segment => END_OF_BAR_SEGMENTS.has(segment))).not.toContain("cost");
+	});
+
+	// The end-of-bar split is a known limitation and is documented in the PR
+	// body: a legacy user whose right half holds a segment some preset places
+	// on the left will see it move ends on the first edit. Pinned here so the
+	// limitation stays visible rather than being rediscovered.
+	it("moves a right-half segment some preset puts on the left, as documented", () => {
+		cfgStatusLinePreset.set(Settings.instance, "custom");
+		cfgStatusLineLeftSegments.set(Settings.instance, ["model"]);
+		cfgStatusLineRightSegments.set(Settings.instance, ["pi"]);
+
+		const before = renderBar();
+		expect(before.left).toEqual(["model"]);
+		expect(before.right).toEqual(["pi"]);
+
+		const row = centerBarSegments(createSettingsHost());
+		// `pi` is a left segment on every preset, so saving the row's own order
+		// puts it back on the left. The row cannot express "right" for it.
+		expect(row.filter(segment => END_OF_BAR_SEGMENTS.has(segment))).toEqual([]);
 	});
 
 	// The Center Bar row is the only segment editor, and it writes the merged
