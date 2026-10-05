@@ -1,9 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "bun:test";
 import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
-import { TempDir, removeSyncWithRetries } from "@oh-my-pi/pi-utils";
+import { TempDir } from "@oh-my-pi/pi-utils";
 import { formatOutputNotice } from "@oh-my-pi/pi-tui/tools/output-meta";
 import * as evalIndex from "@oh-my-pi/pi-coding-agent/eval";
 import * as pyKernel from "@oh-my-pi/pi-coding-agent/eval/py/kernel";
@@ -239,39 +238,36 @@ describe("EvalTool display() text surfacing", () => {
 		// continue]`. That branch sets `details = {}`, so no `truncation`
 		// object survives to hint at the offset either: this tail line is the
 		// only place the model is told how to get the rest of the file.
-		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "eval-read-stream-"));
-		try {
-			const bigPath = path.join(dir, "big.txt");
-			const chunk = `${"y".repeat(4096)}\n`;
-			const handle = fs.openSync(bigPath, "w");
-			for (let i = 0; i < 6 * 256; i++) fs.writeSync(handle, chunk);
-			fs.closeSync(handle);
-			expect(fs.statSync(bigPath).size).toBeGreaterThan(4 * 1024 * 1024);
+		using tempDir = TempDir.createSync("@omp-eval-display-");
+		const dir = tempDir.path();
+		const bigPath = tempDir.join("big.txt");
+		const chunk = `${"y".repeat(4096)}\n`;
+		const handle = fs.openSync(bigPath, "w");
+		for (let i = 0; i < 6 * 256; i++) fs.writeSync(handle, chunk);
+		fs.closeSync(handle);
+		expect(fs.statSync(bigPath).size).toBeGreaterThan(4 * 1024 * 1024);
 
-			const read = new ReadTool(readSession(dir));
-			const realText = toolText((await read.execute("probe-stream", { path: "big.txt" } as never)) as never);
-			expect(realText).toContain("not scanned to EOF");
-			expect(realText.endsWith("]")).toBe(true);
+		const read = new ReadTool(readSession(dir));
+		const realText = toolText((await read.execute("probe-stream", { path: "big.txt" } as never)) as never);
+		expect(realText).toContain("not scanned to EOF");
+		expect(realText.endsWith("]")).toBe(true);
 
-			vi.spyOn(evalIndex.jsBackend, "execute").mockResolvedValue(
-				baseResult({
-					displayOutputs: [{ type: "json", data: { text: realText, details: {} } }],
-				}) as never,
-			);
+		vi.spyOn(evalIndex.jsBackend, "execute").mockResolvedValue(
+			baseResult({
+				displayOutputs: [{ type: "json", data: { text: realText, details: {} } }],
+			}) as never,
+		);
 
-			const tool = new EvalTool(makeSession());
-			const result = await tool.execute("call-stream", {
-				language: "js",
-				code: "display(read('big.txt'));",
-			});
+		const tool = new EvalTool(makeSession());
+		const result = await tool.execute("call-stream", {
+			language: "js",
+			code: "display(read('big.txt'));",
+		});
 
-			const text = result.content.map(c => (c.type === "text" ? c.text : "")).join("\n");
-			expect(text).toContain("ch elided");
-			expect(text).toContain("not scanned to EOF). Use :");
-			expect(text.split("not scanned to EOF").length - 1).toBe(1);
-		} finally {
-			removeSyncWithRetries(dir);
-		}
+		const text = result.content.map(c => (c.type === "text" ? c.text : "")).join("\n");
+		expect(text).toContain("ch elided");
+		expect(text).toContain("not scanned to EOF). Use :");
+		expect(text.split("not scanned to EOF").length - 1).toBe(1);
 	}, 120_000);
 
 	it("keeps a directory listing's continuation notice when the display preview is capped", async () => {
@@ -279,43 +275,94 @@ describe("EvalTool display() text surfacing", () => {
 		// `[N more lines in listing. Use :N to continue]`. Same failure mode:
 		// the notice is the tail of the `text` field, so a head-only cut of
 		// the serialised JSON loses the only paging instruction.
-		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "eval-read-dir-"));
-		try {
-			for (let d = 0; d < 60; d++) {
-				const sub = path.join(dir, `subdir-${String(d).padStart(3, "0")}`);
-				fs.mkdirSync(sub);
-				// Long enough names that the 400-line slice clears the 8 KB cap.
-				for (let f = 0; f < 12; f++) {
-					const longName = `${f}-${"segment".repeat(6)}-${f}.txt`;
-					fs.writeFileSync(path.join(sub, longName), "x\n");
-				}
+		using tempDir = TempDir.createSync("@omp-eval-display-");
+		const dir = tempDir.path();
+		for (let d = 0; d < 60; d++) {
+			const sub = tempDir.join(`subdir-${String(d).padStart(3, "0")}`);
+			fs.mkdirSync(sub);
+			// Long enough names that the 400-line slice clears the 8 KB cap.
+			for (let f = 0; f < 12; f++) {
+				const longName = `${f}-${"segment".repeat(6)}-${f}.txt`;
+				fs.writeFileSync(path.join(sub, longName), "x\n");
 			}
-
-			const read = new ReadTool(readSession(dir));
-			const realText = toolText((await read.execute("probe-dir", { path: ".:1-400" } as never)) as never);
-			expect(realText).toContain("more lines in listing");
-			expect(Buffer.byteLength(realText)).toBeGreaterThan(8000);
-
-			vi.spyOn(evalIndex.jsBackend, "execute").mockResolvedValue(
-				baseResult({
-					displayOutputs: [{ type: "json", data: { text: realText, details: {} } }],
-				}) as never,
-			);
-
-			const tool = new EvalTool(makeSession());
-			const result = await tool.execute("call-dir", {
-				language: "js",
-				code: "display(read('dir:1-400'));",
-			});
-
-			const text = result.content.map(c => (c.type === "text" ? c.text : "")).join("\n");
-			expect(text).toContain("ch elided");
-			expect(text).toContain("more lines in listing. Use :401 to continue]");
-			expect(text.split("more lines in listing").length - 1).toBe(1);
-		} finally {
-			removeSyncWithRetries(dir);
 		}
+
+		const read = new ReadTool(readSession(dir));
+		const realText = toolText((await read.execute("probe-dir", { path: ".:1-400" } as never)) as never);
+		expect(realText).toContain("more lines in listing");
+		expect(Buffer.byteLength(realText)).toBeGreaterThan(8000);
+
+		vi.spyOn(evalIndex.jsBackend, "execute").mockResolvedValue(
+			baseResult({
+				displayOutputs: [{ type: "json", data: { text: realText, details: {} } }],
+			}) as never,
+		);
+
+		const tool = new EvalTool(makeSession());
+		const result = await tool.execute("call-dir", {
+			language: "js",
+			code: "display(read('dir:1-400'));",
+		});
+
+		const text = result.content.map(c => (c.type === "text" ? c.text : "")).join("\n");
+		expect(text).toContain("ch elided");
+		expect(text).toContain("more lines in listing. Use :401 to continue]");
+		expect(text.split("more lines in listing").length - 1).toBe(1);
 	}, 120_000);
+
+	it("keeps the re-attached notice tail inside the same 8 KB budget", async () => {
+		// Every entry is a read that hit its own limit, so the serialised value
+		// carries hundreds of notices. The re-attached tail shared no budget with
+		// the capped head, so the preview grew well past the cap.
+		vi.spyOn(pyKernel, "checkPythonKernelAvailability").mockResolvedValue({ ok: true });
+		const reads = Array.from({ length: 400 }, (_, i) => ({
+			text: `${"z".repeat(200)}\n[Showing lines 1-${i + 2} of ${i + 3}. Use :${i + 3} to continue]`,
+		}));
+		vi.spyOn(evalIndex.jsBackend, "execute").mockResolvedValue(
+			baseResult({
+				displayOutputs: [{ type: "json", data: reads }],
+			}) as never,
+		);
+
+		const tool = new EvalTool(makeSession());
+		const result = await tool.execute("call-many-notices", {
+			language: "js",
+			code: "display(reads);",
+		});
+
+		const text = toolText(result);
+		const label = "display[1]:\n";
+		const preview = text.slice(text.indexOf(label) + label.length);
+		expect(Buffer.byteLength(preview, "utf-8")).toBeLessThanOrEqual(8000);
+		expect(text).toContain("ch elided");
+		// The model has to be able to tell that notices went missing, otherwise a
+		// short tail reads as "that was all of them".
+		expect(text).toContain("more notices elided");
+	});
+
+	it("does not re-attach a notice that the file content merely mentions", async () => {
+		// A source file that quotes the notice, or a log that records one, makes
+		// the notice text appear inside a field without being that field's tail.
+		// Re-attaching it hands the model a paging hint for content it is not
+		// looking at.
+		vi.spyOn(pyKernel, "checkPythonKernelAvailability").mockResolvedValue({ ok: true });
+		const body = `${"y".repeat(20_000)}\n--- docs/notice.md ---\n[Showing lines 1-488 of 921 (50.0KB limit). Use :489 to continue]\nsee read() for the real format\n`;
+		vi.spyOn(evalIndex.jsBackend, "execute").mockResolvedValue(
+			baseResult({
+				displayOutputs: [{ type: "json", data: { text: body } }],
+			}) as never,
+		);
+
+		const tool = new EvalTool(makeSession());
+		const result = await tool.execute("call-quoted-notice", {
+			language: "js",
+			code: "display({ text: body });",
+		});
+
+		const text = toolText(result);
+		expect(text).toContain("ch elided");
+		expect(text).not.toContain("Use :489 to continue");
+	});
 
 	it("keeps oversized display details bounded and spills the full value to the artifact", async () => {
 		using tempDir = TempDir.createSync("@omp-eval-display-");
