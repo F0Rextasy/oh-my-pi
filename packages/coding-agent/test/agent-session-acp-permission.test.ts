@@ -870,7 +870,9 @@ it("allow_always: a different command is not covered by the remembered decision"
 	expect(bashTool.executeCalls).toBe(3);
 });
 
-it("allow_always: a command that differs only in surrounding whitespace is the same decision", async () => {
+it("allow_always: a command that differs in whitespace or line endings asks again", async () => {
+	// Exact bytes key the decision: trailing spaces and \r\n change what the
+	// shell runs, so each spelling is a decision of its own.
 	const bashTool = makeFakeTool("bash");
 	const bridge = makeBridge({ outcome: "selected", optionId: "allow_always", kind: "allow_always" });
 	const permissionSpy = spyOn(bridge, "requestPermission");
@@ -881,9 +883,43 @@ it("allow_always: a command that differs only in surrounding whitespace is the s
 
 	await wrappedBash!.execute("call-1", { command: "npm test" }, undefined, undefined as never, undefined as never);
 	await wrappedBash!.execute("call-2", { command: "  npm test  " }, undefined, undefined as never, undefined as never);
+	await wrappedBash!.execute("call-3", { command: "printf \"<%s>\" build\r\n" }, undefined, undefined as never, undefined as never);
+	await wrappedBash!.execute("call-4", { command: "printf \"<%s>\" build\n" }, undefined, undefined as never, undefined as never);
 
-	expect(permissionSpy).toHaveBeenCalledTimes(1);
-	expect(bashTool.executeCalls).toBe(2);
+	expect(permissionSpy).toHaveBeenCalledTimes(4);
+	expect(bashTool.executeCalls).toBe(4);
+});
+
+it("allow_always: the same command in a different directory asks again", async () => {
+	// The working directory is part of the grant: `rm -rf build` in a sandbox
+	// must not spend the approval given for the repository checkout.
+	const bashTool = makeFakeTool("bash");
+	const bridge = makeBridge({ outcome: "selected", optionId: "allow_always", kind: "allow_always" });
+	const permissionSpy = spyOn(bridge, "requestPermission");
+	session = await createSession([bashTool], bridge);
+
+	await session.setActiveToolsByName(["bash"]);
+	const wrappedBash = session.agent.state.tools.find(t => t.name === "bash");
+	const otherCwd = `${tempDir.path()}-other`;
+
+	await wrappedBash!.execute("call-1", { command: "rm -rf build" }, undefined, undefined as never, undefined as never);
+	await wrappedBash!.execute(
+		"call-2",
+		{ command: "rm -rf build", cwd: otherCwd },
+		undefined,
+		undefined as never,
+		undefined as never,
+	);
+	await wrappedBash!.execute(
+		"call-3",
+		{ command: "rm -rf build", cwd: otherCwd },
+		undefined,
+		undefined as never,
+		undefined as never,
+	);
+
+	expect(permissionSpy).toHaveBeenCalledTimes(2);
+	expect(bashTool.executeCalls).toBe(3);
 });
 
 it("reject_always: the remembered denial names the command it applies to", async () => {

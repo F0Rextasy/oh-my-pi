@@ -940,7 +940,7 @@ export class SessionTools {
 					onUpdate: never,
 					ctx: AgentToolContext | undefined,
 				) => {
-					const permissionIntent = getPermissionIntent(target.name, args);
+					const permissionIntent = getPermissionIntent(target.name, args, this.#host.sessionManager.getCwd());
 					if (!permissionIntent) {
 						return await target.execute(toolCallId, args as never, signal, onUpdate, ctx as never);
 					}

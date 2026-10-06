@@ -48,6 +48,7 @@ function getEditDestructiveIntent(args: unknown): { kind: "delete" | "move"; pat
 export function getPermissionIntent(
 	toolName: string,
 	args: unknown,
+	sessionCwd?: string,
 ): { toolName: string; title: string; paths?: string[]; cacheKey: string; preferenceScope?: string } | undefined {
 	const input = isRecord(args) ? args : {};
 	if (toolName === "bash") {
@@ -55,21 +56,28 @@ export function getPermissionIntent(
 		// "Always allow" / "Always reject" have to name something narrower than the
 		// tool. Keying on `bash` alone let a single remembered answer decide every
 		// later bash call in the session, so one rejection of an unrelated command
-		// silently denied read-only ones the user never saw. Key on the command and
-		// anything genuinely different asks again.
-		// Line endings and surrounding whitespace are transport detail, not user
-		// intent, so the same command typed with a trailing space is one decision.
-		// The whole text keys it rather than a prefix: two long commands that share
-		// a leading run must not collapse into one answer.
-		const scope = command?.replace(/\r\n?/g, "\n").trim();
+		// silently denied read-only ones the user never saw. Key on the exact
+		// command bytes in the effective working directory: a rewrite (line
+		// endings, whitespace) or a different cwd can change what the bytes do,
+		// so anything genuinely different asks again.
+		const explicitCwd = stringProperty(input, "cwd");
+		let effectiveCwd = sessionCwd ?? "";
+		if (explicitCwd) {
+			try {
+				effectiveCwd = resolveToCwd(explicitCwd, sessionCwd ?? explicitCwd);
+			} catch {
+				effectiveCwd = explicitCwd;
+			}
+		}
+		const scope = command === undefined ? undefined : `${effectiveCwd}\n${command}`;
 		return {
 			toolName,
 			title: command?.slice(0, 80) || toolName,
-			cacheKey: scope ? `bash:${scope}` : toolName,
+			cacheKey: scope === undefined ? toolName : `bash:${scope}`,
 			// Echoed in the remembered-rejection message: a denial that does not say
 			// it came from a stored preference reads like a fresh refusal, and the
 			// model retries the identical command.
-			preferenceScope: scope ? `\`${scope}\`` : undefined,
+			preferenceScope: command === undefined ? undefined : `\`${command}\``,
 		};
 	}
 	if (toolName === "delete") {
