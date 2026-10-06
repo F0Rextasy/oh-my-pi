@@ -1,6 +1,6 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, spyOn } from "bun:test";
 import type { Rule } from "@oh-my-pi/pi-coding-agent/capability/rule";
-import { TtsrManager } from "@oh-my-pi/pi-coding-agent/export/ttsr";
+import { TtsrManager, type TtsrMatchContext } from "@oh-my-pi/pi-coding-agent/export/ttsr";
 
 const NEVER_MATCHES = "NEVER_MATCHES_THIS_LITERAL";
 const RULE_NAME = "delta-scan-tool-bash";
@@ -54,17 +54,15 @@ function stream(manager: TtsrManager, wire: string, context: TtsrMatchContext, d
  */
 function totalCharactersTested(run: () => void): number {
 	const original = RegExp.prototype.test;
-	let total = 0;
-	RegExp.prototype.test = function patched(input: string): boolean {
-		total += input.length;
+	const spy = spyOn(RegExp.prototype, "test").mockImplementation(function (this: RegExp, input: string): boolean {
 		return original.call(this, input);
-	};
+	});
 	try {
 		run();
+		return spy.mock.calls.reduce((sum, [input]) => sum + input.length, 0);
 	} finally {
-		RegExp.prototype.test = original;
+		spy.mockRestore();
 	}
-	return total;
 }
 
 describe("TTSR checkDelta scan cost", () => {
@@ -122,9 +120,7 @@ describe("TTSR checkDelta resumed scans stay exact", () => {
 
 	it("finds a match sitting at the very start of the stream", () => {
 		const manager = managerFor(TOKEN);
-		expect(matchedNames(stream(manager, `${TOKEN} and then some`, toolContext("head")))).toContain(
-			RULE_NAME,
-		);
+		expect(matchedNames(stream(manager, `${TOKEN} and then some`, toolContext("head")))).toContain(RULE_NAME);
 	});
 
 	it("still matches after a long non-matching prefix", () => {
@@ -159,9 +155,11 @@ describe("TTSR scan offsets follow the buffer lifecycle", () => {
 		const manager = managerFor(TOKEN);
 		const context = toolContext("snapshot");
 		expect(stream(manager, PREFIX, context)).toEqual([]);
-		// The snapshot is a different, shorter buffer; a retained offset would
-		// resume past the token and miss it.
-		expect(matchedNames(manager.checkSnapshot(TOKEN, context))).toEqual([RULE_NAME]);
+		// Split the token across the snapshot/delta boundary: the snapshot alone
+		// must not match, and the completing delta must. A retained offset would
+		// resume past this short buffer and miss it.
+		expect(manager.checkSnapshot(TOKEN.slice(0, -2), context)).toEqual([]);
+		expect(matchedNames(manager.checkDelta("EN", context))).toEqual([RULE_NAME]);
 	});
 
 	it("restarts the scan after the stream is reset", () => {

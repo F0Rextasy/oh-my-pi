@@ -256,7 +256,11 @@ export class TtsrManager {
 		for (const pattern of rule.condition ?? []) {
 			try {
 				const regex = compileRuleCondition(pattern);
-				compiled.push({ regex, matchWindow: maxMatchLength(regex.source) });
+				// The source-length bound counts UTF-16 code units per source char,
+				// which only holds without `u`/`v`: one `.` can match a surrogate
+				// pair. Such patterns stay unbounded until the bound learns flags.
+				const unbounded = regex.unicode || regex.unicodeSets;
+				compiled.push({ regex, matchWindow: unbounded ? undefined : maxMatchLength(regex.source) });
 			} catch (error) {
 				logger.warn("TTSR condition has invalid regex pattern, skipping condition", {
 					ruleName: rule.name,
