@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed the session token and cost totals reading as provider billing; they are now labelled as local estimates, and provider-reported premium and credit meters are marked as provider figures ([#12619](https://github.com/can1357/oh-my-pi/issues/12619), [#12672](https://github.com/can1357/oh-my-pi/pull/12672) by [@F0Rextasy](https://github.com/F0Rextasy)).
+
 ## [18.6.2] - 2026-10-04
 
 ### Fixed
