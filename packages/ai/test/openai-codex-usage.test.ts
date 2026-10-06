@@ -407,14 +407,14 @@ describe("openai-codex usage parser", () => {
 				},
 			],
 		};
-		const fetchImpl: FetchImpl = (async (url: string | URL | Request) => {
+		const fetchImpl: FetchImpl = async (url: string | URL | Request) => {
 			const path = typeof url === "string" ? url : url.toString();
 			const body = path.includes("rate-limit-reset-credits") ? creditsPayload : usagePayload;
 			return new Response(JSON.stringify(body), {
 				status: 200,
 				headers: { "content-type": "application/json" },
 			});
-		}) as unknown as FetchImpl;
+		};
 		const report = await openaiCodexUsageProvider.fetchUsage(
 			{
 				provider: "openai-codex",
