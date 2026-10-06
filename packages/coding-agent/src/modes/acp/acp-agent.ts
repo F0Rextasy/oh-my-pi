@@ -60,6 +60,7 @@ import { MCPManager } from "../../mcp/manager";
 import type { MCPServerConfig } from "../../mcp/types";
 import { loadAllExtensions } from "../../modes/components/extensions/state-manager";
 import { theme } from "@oh-my-pi/pi-tui/theme";
+import type { ContextUsage } from "@oh-my-pi/pi-tui/status-line/types";
 import { normalizePlanTitle, type PlanApprovalDetails, resolveApprovedPlan } from "../../plan-mode/approved-plan";
 import { autosaveApprovedPlan } from "../../plan-mode/plan-autosave";
 import type { AgentSession, AgentSessionEvent } from "../../session/agent-session";
@@ -181,6 +182,8 @@ type ManagedSessionRecord = {
 	lifetimeUnsubscribe: (() => void) | undefined;
 	closedError: PromptLifecycleError | undefined;
 	promptEventHandlers: Set<Promise<void>>;
+	/** Tail of the per-record handler chain; events are handled in arrival order. */
+	promptEventChain: Promise<void> | undefined;
 	extensionUserMessageTasks: Set<Promise<void>>;
 };
 
@@ -906,13 +909,27 @@ export class AcpAgent implements Agent {
 	}
 
 	#trackPromptEvent(record: ManagedSessionRecord, event: AgentSessionEvent): void {
-		const handling = this.#handlePromptEvent(record, event).catch((error: unknown) => {
+		// Handlers run in arrival order: a later event (notably agent_end)
+		// must not overtake an earlier one and settle the turn first, which
+		// would make the earlier handler return early and drop its updates.
+		// The emitter still never waits; only relative order is guaranteed.
+		// Usage is sampled here, synchronously at arrival: chained handlers
+		// start later, by which time a back-to-back event could already have
+		// advanced the session and every update would report the latest figure.
+		const usageSnapshot =
+			(event.type === "message_end" && event.message.role === "assistant") || event.type === "auto_compaction_end"
+				? record.session.getContextUsage()
+				: undefined;
+		const previous = record.promptEventChain ?? Promise.resolve();
+		const handling = previous.then(() => this.#handlePromptEvent(record, event, usageSnapshot));
+		const guarded = handling.catch((error: unknown) => {
 			logger.warn("ACP prompt event handler failed", { error });
 		});
-		record.promptEventHandlers.add(handling);
-		void handling.finally(() => {
-			record.promptEventHandlers.delete(handling);
+		record.promptEventHandlers.add(guarded);
+		void guarded.finally(() => {
+			record.promptEventHandlers.delete(guarded);
 		});
+		record.promptEventChain = guarded;
 	}
 
 	async #waitForPromptEventHandlers(record: ManagedSessionRecord): Promise<void> {
@@ -1349,6 +1366,7 @@ export class AcpAgent implements Agent {
 			extensionsConfigured: false,
 			closedError: undefined,
 			promptEventHandlers: new Set(),
+			promptEventChain: undefined,
 			extensionUserMessageTasks: new Set(),
 			lifetimeUnsubscribe: undefined,
 		};
@@ -1412,7 +1430,11 @@ export class AcpAgent implements Agent {
 		return storedSession.path;
 	}
 
-	async #handlePromptEvent(record: ManagedSessionRecord, event: AgentSessionEvent): Promise<void> {
+	async #handlePromptEvent(
+		record: ManagedSessionRecord,
+		event: AgentSessionEvent,
+		usageSnapshot?: ContextUsage,
+	): Promise<void> {
 		const promptTurn = record.promptTurn;
 		if (!promptTurn || promptTurn.settled || promptTurn.cancelRequested) {
 			return;
@@ -1463,7 +1485,7 @@ export class AcpAgent implements Agent {
 			(event.type === "message_end" && event.message.role === "assistant") ||
 			event.type === "auto_compaction_end"
 		) {
-			await this.#emitUsageUpdate(record);
+			await this.#emitUsageUpdate(record, usageSnapshot);
 		}
 		this.#clearLiveAssistantMessageAfterEvent(record, event);
 
@@ -2189,8 +2211,8 @@ export class AcpAgent implements Agent {
 	 * prompts don't leave ACP clients meter-blind for hours; the schema allows
 	 * the notification mid-prompt and the end-of-turn send stays as-is.
 	 */
-	async #emitUsageUpdate(record: ManagedSessionRecord): Promise<void> {
-		const contextUsage = record.session.getContextUsage();
+	async #emitUsageUpdate(record: ManagedSessionRecord, usageSnapshot?: ContextUsage): Promise<void> {
+		const contextUsage = usageSnapshot ?? record.session.getContextUsage();
 		if (!contextUsage) return;
 		const usageStats = record.session.sessionManager.getUsageStatistics();
 		await this.#connection.sessionUpdate({

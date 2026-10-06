@@ -10,6 +10,7 @@
 
 - RPC `open_session` and `switch_session` accept an optional `provider`/`modelId` pair that binds the session to that model instead of its saved one, as `--model` does at startup; `RpcClient.openSession()`/`switchSession()` and the Python client's `open_session()`/`switch_session()` take it too ([#13689](https://github.com/can1357/oh-my-pi/pull/13689) by [@alphastorm](https://github.com/alphastorm))
 - Added `compat.statefulResponses` to `models.yml`, so a provider or model can opt into or out of stored Responses chaining without the process-wide `PI_OPENAI_STATEFUL` ([#13686](https://github.com/can1357/oh-my-pi/pull/13686) by [@alphastorm](https://github.com/alphastorm)).
+- Added `usage_update` notifications after each assistant message and compaction for ACP hosts, so long prompts no longer leave clients meter-blind ([#12667](https://github.com/can1357/oh-my-pi/issues/12667), [#12716](https://github.com/can1357/oh-my-pi/pull/12716) by [@F0Rextasy](https://github.com/F0Rextasy)).
 
 ### Changed
 

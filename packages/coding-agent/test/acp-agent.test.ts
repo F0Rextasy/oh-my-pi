@@ -42,6 +42,7 @@ import {
 	zPromptResponse,
 	zSessionNotification,
 } from "@oh-my-pi/pi-utils/acp";
+import type { ContextUsage } from "@oh-my-pi/pi-tui/status-line/types";
 import { TOOL_NAME as DELAYED_MCP_TOOL_NAME } from "./fixtures/delayed-tool-mcp";
 
 import { cfgPlanAutosave, cfgPlanAutosaveDir, cfgPlanEnabled } from "@oh-my-pi/pi-coding-agent/plan-mode/settings";
@@ -298,7 +299,7 @@ class FakeAgentSession {
 
 	async refreshMCPTools(_tools: unknown[]): Promise<void> {}
 
-	getContextUsage(): undefined {
+	getContextUsage(): ContextUsage | undefined {
 		return undefined;
 	}
 
@@ -3574,48 +3575,11 @@ describe("ACP agent MCP server configuration (late-connecting servers)", () => {
 
 describe("ACP per-message usage updates (issue #12667)", () => {
 	it("emits usage_update after each assistant message and compaction", async () => {
-		const harness = await createHarness();
-		const created = await harness.agent.newSession({ cwd: harness.cwdA, mcpServers: [] });
-		const session = harness.findSession(created.sessionId);
-		if (!session) throw new Error("session not registered");
-
-		let usedTokens = 0;
-		spyOn(session, "getContextUsage").mockImplementation(() => ({ contextWindow: 1000, tokens: usedTokens }) as never);
-		const msg1 = makeAssistantMessage("First answer.");
-		const msg2 = makeAssistantMessage("Second answer.");
-		session.prompt = async (): Promise<boolean> => {
-			session.isStreaming = true;
-			const fire = async (event: AgentSessionEvent): Promise<void> => {
-				for (const listener of session.listeners()) {
-					listener(event);
-				}
-				await Bun.sleep(0);
-			};
-			usedTokens = 100;
-			await fire({ type: "message_end", message: msg1 } as AgentSessionEvent);
-			usedTokens = 200;
-			await fire({ type: "message_end", message: msg2 } as AgentSessionEvent);
-			await fire({
-				type: "auto_compaction_end",
-				action: "context-full",
-				result: undefined,
-				aborted: false,
-				willRetry: false,
-			} as AgentSessionEvent);
-			usedTokens = 50;
-			await fire({ type: "agent_end", messages: [msg1, msg2] } as AgentSessionEvent);
-			session.isStreaming = false;
-			return true;
-		};
-
-		await harness.agent.prompt({ sessionId: created.sessionId, prompt: [{ type: "text", text: "Go" }] });
-
-		const used: number[] = [];
-		const collectUsage = (): void => {
-			used.length = 0;
-			for (const update of harness.updates) {
-				if (update.sessionId !== created.sessionId) continue;
-				const inner: unknown = update.update;
+		const seen: number[] = [];
+		const allSeen = Promise.withResolvers<void>();
+		const harness = await createHarness({
+			sessionUpdateHook: notification => {
+				const inner: unknown = notification.update;
 				if (
 					typeof inner === "object" &&
 					inner !== null &&
@@ -3624,15 +3588,53 @@ describe("ACP per-message usage updates (issue #12667)", () => {
 					"used" in inner &&
 					typeof inner.used === "number"
 				) {
-					used.push(inner.used);
+					seen.push(inner.used);
+					if (seen.length >= 4) allSeen.resolve();
 				}
-			}
+			},
+		});
+		const created = await harness.agent.newSession({ cwd: harness.cwdA, mcpServers: [] });
+		const session = harness.findSession(created.sessionId);
+		if (!session) throw new Error("session not registered");
+
+		let usedTokens = 0;
+		spyOn(session, "getContextUsage").mockImplementation((): ContextUsage | undefined => ({
+			contextWindow: 1000,
+			tokens: usedTokens,
+			percent: usedTokens / 10,
+		}));
+		const msg1 = makeAssistantMessage("First answer.");
+		const msg2 = makeAssistantMessage("Second answer.");
+		session.prompt = async (): Promise<boolean> => {
+			session.isStreaming = true;
+			// Production Agent#emit is fire-and-forget: invoke listeners without
+			// awaiting so back-to-back events interleave like the live session.
+			// Each handler snapshots usage synchronously at entry, so the
+			// per-message figures hold regardless of delivery interleaving.
+			const fire = (event: AgentSessionEvent): void => {
+				for (const listener of session.listeners()) {
+					listener(event);
+				}
+			};
+			usedTokens = 100;
+			fire({ type: "message_end", message: msg1 });
+			usedTokens = 200;
+			fire({ type: "message_end", message: msg2 });
+			fire({
+				type: "auto_compaction_end",
+				action: "context-full",
+				result: undefined,
+				aborted: false,
+				willRetry: false,
+			});
+			usedTokens = 50;
+			fire({ type: "agent_end", messages: [msg1, msg2] });
+			session.isStreaming = false;
+			return true;
 		};
-		collectUsage();
-		for (let i = 0; i < 500 && used.length < 4; i++) {
-			await Bun.sleep(10);
-			collectUsage();
-		}
-		expect(used).toEqual([100, 200, 200, 50]);
+
+		await harness.agent.prompt({ sessionId: created.sessionId, prompt: [{ type: "text", text: "Go" }] });
+		await allSeen.promise;
+		expect(seen).toEqual([100, 200, 200, 50]);
 	});
 });
