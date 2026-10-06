@@ -94,6 +94,13 @@ export class AuthBrokerRefresher {
 				targets.push(entry.id);
 			}
 			await Promise.all(targets.map(id => this.#refreshOne(id)));
+		} catch (error) {
+			// The sweep is background work driven by `void this.tick()`, so a
+			// rejection here is unhandled rather than reported: a store that
+			// cannot be read (`reload` rethrows on corruption by design) would
+			// take the broker process down, then do so again on every interval.
+			// Record it and let the next sweep retry.
+			logger.warn("auth-broker refresh sweep failed", { error: String(error) });
 		} finally {
 			this.#running = false;
 			this.#nextSweepAt = this.#now() + this.#refreshIntervalMs;

@@ -196,4 +196,48 @@ describe("AuthBrokerRefresher", () => {
 			expect(rows[0].credential.refresh).toBe("fresh-refresh-from-peer");
 		}
 	});
+
+	test("a sweep whose credential reload fails resolves instead of rejecting", async () => {
+		const now = 1_700_000_000_000;
+		storage = new AuthStorage(store!);
+		// `reload()` rethrows when the credential store cannot be read, which is
+		// what a corrupt or unreadable store does. The sweep is started as
+		// `void this.tick()`, so a rejection here is unhandled rather than
+		// reported, and the broker process dies with no log of why.
+		vi.spyOn(storage.credentials, "reload").mockRejectedValue(new Error("credential store unreadable"));
+
+		const refresher = new AuthBrokerRefresher({
+			storage,
+			refreshSkewMs: 5 * 60_000,
+			now: () => now,
+		});
+
+		// Resolves: a failed sweep is logged and the next one is scheduled.
+		await expect(refresher.tick()).resolves.toBeUndefined();
+		expect(refresher.getSchedule().nextSweepAt).toBe(now + 60_000);
+
+		// The sweep is not wedged: a later tick runs instead of returning early
+		// on the in-flight latch the failed sweep would have left set. Assert
+		// that the sweep ran again rather than pinning how many reloads one
+		// sweep performs, which is an implementation detail rather than the
+		// behaviour under test.
+		const reload = vi.spyOn(storage.credentials, "reload").mockResolvedValue(undefined);
+		reload.mockClear();
+		await refresher.tick();
+		expect(reload).toHaveBeenCalled();
+	});
+
+	test("a rejected sweep does not leave the in-flight latch set", async () => {
+		// `tick()` is the unit both `void this.tick()` call sites drive, so a
+		// rejection there is unhandled rather than reported. The `#running`
+		// latch is cleared in a `finally`, so it survives a rejection; asserting
+		// that here keeps the guard honest if the catch arm is ever removed and
+		// only the finally remains.
+		storage = new AuthStorage(store!);
+		vi.spyOn(storage.credentials, "reload").mockRejectedValue(new Error("credential store unreadable"));
+		const refresher = new AuthBrokerRefresher({ storage, now: () => 1_700_000_000_000 });
+
+		await expect(refresher.tick()).resolves.toBeUndefined();
+		await expect(refresher.tick()).resolves.toBeUndefined();
+	});
 });
