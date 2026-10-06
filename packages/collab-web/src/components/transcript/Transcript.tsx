@@ -189,12 +189,17 @@ function entryRowEqual(prev: EntryRowProps, next: EntryRowProps): boolean {
 }
 
 const EntryRow = memo(function EntryRow({ entry, results, active, host, hostBadge }: EntryRowProps): ReactNode {
+	switch (entry.type) {
 		case "message": {
 			const msg = entry.message;
 			switch (msg.role) {
 				case "user":
 					return (
-						<Row kind="user" gutter={hostBadge ?? "host"} title={entry.timestamp}>
+						<Row
+							kind="user"
+							gutter={hostBadge ? <span className="tr-badge">{hostBadge}</span> : "host"}
+							title={entry.timestamp}
+						>
 							<MsgContent content={msg.content} />
 						</Row>
 					);
@@ -396,7 +401,14 @@ export function Transcript(props: TranscriptProps): ReactNode {
 				</button>
 			)}
 			{visible.map(entry => (
-				<EntryRow key={entry.id} entry={entry} results={results} active={activeTools} host={host} hostBadge={hostBadge} />
+				<EntryRow
+					key={entry.id}
+					entry={entry}
+					results={results}
+					active={activeTools}
+					host={host}
+					hostBadge={hostBadge}
+				/>
 			))}
 			{stream !== null && (
 				<Row kind="assistant" gutter="agent">

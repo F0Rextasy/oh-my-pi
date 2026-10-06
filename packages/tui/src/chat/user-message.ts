@@ -1,4 +1,4 @@
-import { applyBackgroundToLine, padding, visibleWidth } from "../utils";
+import { applyBackgroundToLine, padding, truncateToWidth, visibleWidth } from "../utils";
 import { type Component, Container } from "../tui";
 import { Disclosure } from "../components/disclosure";
 import { Markdown } from "../components/markdown";
@@ -288,10 +288,12 @@ export class UserMessageComponent extends Container implements ReactionTarget {
 	 * the horizontal padding.
 	 */
 	#badgeRow(width: number): string {
-		const author =
-			this.#authorBadge === undefined ? "" : theme.fg("accent", `\x1b[1m«${this.#authorBadge}»\x1b[22m ›`);
 		const marker = this.#liveSteered ? theme.fg("accent", "*") : "";
 		const emoji = this.#reaction ?? "";
+		// A long collab name truncates instead of pushing the row past the width.
+		const room = Math.max(0, width - 2 - visibleWidth(marker) - visibleWidth(emoji));
+		const raw = this.#authorBadge === undefined ? "" : `«${this.#authorBadge}» ›`;
+		const author = raw === "" ? "" : theme.fg("accent", `\x1b[1m${truncateToWidth(raw, room)}\x1b[22m`);
 		const head = author + marker;
 		const gap = Math.max(0, width - 2 - visibleWidth(head) - visibleWidth(emoji));
 		return applyBackgroundToLine(` ${head}${padding(gap)}${emoji}`, width, this.#bgColor);

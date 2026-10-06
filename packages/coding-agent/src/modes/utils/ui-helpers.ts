@@ -305,18 +305,18 @@ export class UiHelpers {
 								this.ctx.viewSession.sessionManager.putBlobSync.bind(this.ctx.viewSession.sessionManager),
 							);
 						userComponent = new UserMessageComponent(userText, {
-						synthetic: isSynthetic,
-						imageLinks,
-						images,
-						liveSteered: message.role === "user" && message.liveSteered === true,
-						timestamp: message.timestamp,
-						// Host-typed prompts carry the host's badge only while a room is
-						// active; an agent-injected `user` turn is not the operator's.
-						authorBadge:
-							message.role === "user" && !isSynthetic && message.attribution !== "agent"
-								? collabHostBadge(this.ctx)
-								: undefined,
-					});
+							synthetic: isSynthetic,
+							imageLinks,
+							images,
+							liveSteered: message.role === "user" && message.liveSteered === true,
+							timestamp: message.timestamp,
+							// Host-typed prompts carry the host's badge only while a room is
+							// active; an agent-injected `user` turn is not the operator's.
+							authorBadge:
+								message.role === "user" && !isSynthetic && message.attribution !== "agent"
+									? collabHostBadge(this.ctx)
+									: undefined,
+						});
 						this.ctx.transcriptMessageComponents.set(message, userComponent);
 					}
 					this.ctx.chatContainer.addChild(userComponent);
