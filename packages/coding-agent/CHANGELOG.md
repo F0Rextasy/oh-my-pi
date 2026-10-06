@@ -19,8 +19,6 @@
 - Large mermaid flowcharts and state diagrams render much faster while a response streams ([#14454](https://github.com/can1357/oh-my-pi/pull/14454) by [@H4vC](https://github.com/H4vC))
 
 ### Fixed
-- In a collab session a host-typed prompt rendered with no author while guest prompts carried a `«name»` badge, so guests saw named turns interleaved with anonymous ones; the host now renders the same badge while solo sessions are unchanged ([#14082](https://github.com/can1357/oh-my-pi/issues/14082)).
-
 - Fixed the `/usage` sheet in Tern missing the Close button the other report sheets have ([#14455](https://github.com/can1357/oh-my-pi/pull/14455) by [@H4vC](https://github.com/H4vC)).
 - Fixed cancelling a bash command on Windows sometimes terminating an unrelated program ([#14454](https://github.com/can1357/oh-my-pi/pull/14454) by [@H4vC](https://github.com/H4vC))
 - Fixed `umask` in a bash command changing the umask of omp itself ([#14454](https://github.com/can1357/oh-my-pi/pull/14454) by [@H4vC](https://github.com/H4vC))
@@ -34,6 +32,7 @@
 - Fixed Claude rejecting or dropping the thinking kept after a compaction when the date or working directory had changed during a tool call in the kept turns; the date/cwd reminder those turns were sent with is no longer removed ([#14502](https://github.com/can1357/oh-my-pi/pull/14502) by [@H4vC](https://github.com/H4vC))
 - Fixed browser `tab.waitForDownload()` and `tab.downloads()` reporting a path that does not exist when another open tab set a different `downloads` directory ([#14434](https://github.com/can1357/oh-my-pi/pull/14434) by [@will-bogusz](https://github.com/will-bogusz))
 - Fixed subagents keeping the MCP tools they started with after `/mcp reload` or adding or removing an MCP server; running and revived subagents now follow the main session's MCP tools ([#14441](https://github.com/can1357/oh-my-pi/pull/14441) by [@abilliontokens](https://github.com/abilliontokens)).
+- In a collab session a host-typed prompt rendered with no author while guest prompts carried a `«name»` badge, so guests saw named turns interleaved with anonymous ones; the host now renders the same badge while solo sessions are unchanged ([#14082](https://github.com/can1357/oh-my-pi/issues/14082)).
 
 ## [18.6.2] - 2026-10-04
 
