@@ -217,6 +217,80 @@ describe("EvalTool display() text surfacing", () => {
 		expect(text).toContain("ch elided");
 	});
 
+	it("reattaches a duplicate notice whose twin survives in the head", async () => {
+		vi.spyOn(pyKernel, "checkPythonKernelAvailability").mockResolvedValue({ ok: true });
+		const notice = "[Showing lines 1-10 of 50 (1KB limit). Use :11 to continue]";
+		vi.spyOn(evalIndex.jsBackend, "execute").mockResolvedValue(
+			baseResult({
+				displayOutputs: [
+					{
+						type: "json",
+						data: { text: `start\n${notice}\n${"y".repeat(8100)}`, details: { note: notice } },
+					},
+				],
+			}) as never,
+		);
+
+		const tool = new EvalTool(makeSession());
+		const result = await tool.execute("call-duplicate-notice", {
+			language: "js",
+			code: "display(read('big.txt'));",
+		});
+
+		const text = result.content.map(c => (c.type === "text" ? c.text : "")).join("\n");
+		// Once inline in the head, once reattached as the tail: the details twin
+		// past the cut must not be de-duplicated away by string value.
+		expect(text.split("Use :11 to continue").length - 1).toBe(2);
+	});
+
+	it("caps reattached notices inside the model-visible bound", async () => {
+		vi.spyOn(pyKernel, "checkPythonKernelAvailability").mockResolvedValue({ ok: true });
+		const notices = Array.from(
+			{ length: 200 },
+			(_, i) => `[Showing lines 1-10 of 50 (1KB limit). Use :${i} to continue]`,
+		);
+		vi.spyOn(evalIndex.jsBackend, "execute").mockResolvedValue(
+			baseResult({ displayOutputs: [{ type: "json", data: { text: notices.join("\n") } }] }) as never,
+		);
+
+		const tool = new EvalTool(makeSession());
+		const result = await tool.execute("call-notice-flood", {
+			language: "js",
+			code: "display(read('big.txt'));",
+		});
+
+		const text = result.content.map(c => (c.type === "text" ? c.text : "")).join("\n");
+		expect(Buffer.byteLength(text, "utf-8")).toBeLessThanOrEqual(8000);
+		expect(text).toContain("Use :0 to continue");
+		expect(text).not.toContain("Use :199 to continue");
+	});
+
+	it("keeps a notice the head reservation itself pushes past the cut", async () => {
+		vi.spyOn(pyKernel, "checkPythonKernelAvailability").mockResolvedValue({ ok: true });
+		const early = "[Showing lines 1-10 of 50 (1KB limit). Use :11 to continue]";
+		const late = "[Showing lines 1-10 of 60 (2KB limit). Use :12 to continue]";
+		vi.spyOn(evalIndex.jsBackend, "execute").mockResolvedValue(
+			baseResult({
+				displayOutputs: [
+					{
+						type: "json",
+						data: { text: `${"z".repeat(7820)}${early}\n${"z".repeat(400)}${late}`, details: {} },
+					},
+				],
+			}) as never,
+		);
+
+		const tool = new EvalTool(makeSession());
+		const result = await tool.execute("call-shrink-drop", {
+			language: "js",
+			code: "display(read('big.txt'));",
+		});
+
+		const text = result.content.map(c => (c.type === "text" ? c.text : "")).join("\n");
+		expect(text).toContain("Use :11 to continue");
+		expect(text).toContain("Use :12 to continue");
+	});
+
 	it("keeps oversized display details bounded and spills the full value to the artifact", async () => {
 		using tempDir = TempDir.createSync("@omp-eval-display-");
 		const artifactPath = tempDir.join("eval.log");
