@@ -7,6 +7,7 @@ import { BtwHistoryPanel } from "@oh-my-pi/pi-tui/overlays/btw-history-panel";
 import { KeybindingsManager } from "@oh-my-pi/pi-tui/app-keybindings";
 import { BtwHistoryStore } from "@oh-my-pi/pi-coding-agent/session/btw-history";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
+import { dedupeEphemeralReply } from "@oh-my-pi/pi-coding-agent/session/messages";
 import { BtwPanelComponent } from "@oh-my-pi/pi-tui/overlays/btw-panel";
 import { BtwController } from "@oh-my-pi/pi-coding-agent/modes/controllers/btw-controller";
 import { initTheme } from "@oh-my-pi/pi-tui/theme";
@@ -41,6 +42,8 @@ interface RunEphemeralTurnArgs {
 	promptText: string;
 	onTextDelta?: (delta: string) => void;
 	signal?: AbortSignal;
+	dedupeReply?: boolean;
+	replyMaxBytes?: number;
 }
 
 interface RunEphemeralTurnResult {
@@ -770,6 +773,47 @@ describe("BtwController", () => {
 			if (!(panel instanceof BtwHistoryPanel)) throw new Error("Expected BTW history");
 			expect(Bun.stripANSI(panel.render(100).join("\n"))).not.toContain("Partial answer");
 		} finally {
+			await controller.dispose();
+			await fs.rm(directory, { recursive: true, force: true });
+		}
+	});
+
+	it("keeps a long /btw answer whole through BTW history and the clipboard", async () => {
+		// Distinct lines: the repeated-line collapse must leave this untouched, so `toBe` is the right
+		// assertion. The session applies the 4 KiB side-reply cap unless the controller opts out.
+		const long = Array.from({ length: 200 }, (_, i) => `Line ${i}: a distinct detail.`).join("\n");
+		expect(Buffer.byteLength(long, "utf8")).toBeGreaterThan(4096);
+		const directory = await fs.mkdtemp(path.join(os.tmpdir(), "omp-btw-long-"));
+		const run = vi.fn(async (args: RunEphemeralTurnArgs) => {
+			const replyText =
+				args.dedupeReply === false ? long.trim() : dedupeEphemeralReply(long, args.replyMaxBytes);
+			return { replyText, assistantMessage: createAssistantMessage(replyText) };
+		});
+		const ctx = makeCtx(makeFakeSession(run));
+		const showOverlay = vi.spyOn(ctx.ui, "showOverlay");
+		ctx.sessionManager = SessionManager.create(directory, directory);
+		const controller = new BtwController(ctx);
+		let restored: BtwController | undefined;
+		try {
+			await controller.start("Explain at length");
+			await drainBtwRequest();
+			controller.handleEscape();
+			await controller.flush();
+
+			const saved = (await BtwHistoryStore.open(ctx.sessionManager.getArtifactsDir()!)).getRecords();
+			expect(saved.map(record => record.answer)).toEqual([long]);
+
+			await controller.dispose();
+			restored = new BtwController(ctx);
+			await restored.start("");
+			const panel = showOverlay.mock.calls.at(-1)?.[0];
+			if (!(panel instanceof BtwHistoryPanel)) throw new Error("Expected BTW history");
+			const copy = vi.spyOn(clipboard, "copyToClipboard").mockResolvedValue(undefined);
+			panel.handleInput("c");
+			await drainBtwRequest();
+			expect(copy).toHaveBeenCalledWith(long);
+		} finally {
+			await restored?.dispose();
 			await controller.dispose();
 			await fs.rm(directory, { recursive: true, force: true });
 		}
