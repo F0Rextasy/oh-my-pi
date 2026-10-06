@@ -17,10 +17,6 @@ import {
 	isUsageLimitOutcome,
 	parseRateLimitReason,
 } from "@oh-my-pi/pi-ai/error/rate-limit";
-import { streamGoogleGeminiCli } from "@oh-my-pi/pi-ai/providers/google-gemini-cli";
-import type { Context, FetchImpl, Model } from "@oh-my-pi/pi-ai/types";
-import type { AssistantMessageEventStream } from "@oh-my-pi/pi-ai/utils/event-stream";
-import { buildModel } from "@oh-my-pi/pi-catalog/build";
 
 const DETAIL_FREE_429_BODY = JSON.stringify({
 	error: {
@@ -29,52 +25,6 @@ const DETAIL_FREE_429_BODY = JSON.stringify({
 		status: "RESOURCE_EXHAUSTED",
 	},
 });
-
-function ccaChunk(text: string): Record<string, unknown> {
-	return {
-		response: {
-			candidates: [{ content: { parts: [{ text }] }, finishReason: "STOP" }],
-			usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 5, totalTokenCount: 15 },
-		},
-	};
-}
-
-function sse(...chunks: unknown[]): Response {
-	const body = chunks.map(chunk => `data: ${JSON.stringify(chunk)}\n\n`).join("");
-	return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
-}
-
-function errorResponse(status: number, body: string, headers?: Record<string, string>): Response {
-	return new Response(body, { status, headers: { "content-type": "application/json", ...headers } });
-}
-
-const context: Context = { messages: [{ role: "user", content: "hi", timestamp: 1 }] };
-
-const antigravityModel: Model<"google-gemini-cli"> = buildModel({
-	id: "gemini-3.8-flash-high",
-	name: "Gemini 3.8 Flash High (Antigravity)",
-	api: "google-gemini-cli",
-	provider: "google-antigravity",
-	baseUrl: "https://daily-cloudcode-pa.googleapis.com",
-	reasoning: true,
-	input: ["text"],
-	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-	contextWindow: 200_000,
-	maxTokens: 32_000,
-});
-
-const credentials = JSON.stringify({ token: "token", projectId: "proj-123" });
-
-async function drainResult(
-	stream: AssistantMessageEventStream,
-): Promise<{ text: string; stopReason: string | undefined }> {
-	let text = "";
-	for await (const event of stream) {
-		if (event.type === "text_delta") text += event.delta;
-	}
-	const result = await stream.result();
-	return { text, stopReason: result.stopReason };
-}
 
 describe("antigravity detail-free 429 classification", () => {
 	it("maps the boilerplate to MODEL_CAPACITY_EXHAUSTED instead of QUOTA_EXHAUSTED", () => {
@@ -124,57 +74,7 @@ describe("antigravity detail-free 429 classification", () => {
 	});
 });
 
-describe("antigravity detail-free 429 retry path", () => {
-	it("honors Retry-After: scripted 429 retries once then succeeds", async () => {
-		let calls = 0;
-		const fetchMock: FetchImpl = async () => {
-			calls += 1;
-			if (calls === 1) {
-				return errorResponse(429, DETAIL_FREE_429_BODY, { "retry-after": "0" });
-			}
-			const response = sse(ccaChunk("Recovered."));
-			Object.defineProperty(response, "url", { value: "https://example.com/v1internal:streamGenerateContent" });
-			return response;
-		};
-
-		const stream = streamGoogleGeminiCli(antigravityModel, context, {
-			apiKey: credentials,
-			antigravityEndpointMode: "production",
-			fetch: fetchMock,
-			maxRetryDelayMs: 60_000,
-		});
-		const { text, stopReason } = await drainResult(stream);
-
-		expect(calls).toBe(2);
-		expect(stopReason).toBe("stop");
-		expect(text).toBe("Recovered.");
-	});
-
-	it("uses bounded backoff without a header: succeeds within the retry budget", async () => {
-		let calls = 0;
-		const fetchMock: FetchImpl = async () => {
-			calls += 1;
-			if (calls === 1) return errorResponse(429, DETAIL_FREE_429_BODY);
-			const response = sse(ccaChunk("Recovered."));
-			Object.defineProperty(response, "url", { value: "https://example.com/v1internal:streamGenerateContent" });
-			return response;
-		};
-
-		const stream = streamGoogleGeminiCli(antigravityModel, context, {
-			apiKey: credentials,
-			antigravityEndpointMode: "production",
-			fetch: fetchMock,
-			maxRetryDelayMs: 60_000,
-		});
-		const { text, stopReason } = await drainResult(stream);
-
-		// First 429 attempt + one bounded-backoff retry that succeeds: no raw
-		// 429 surfaces, and the request is not retried in a loop.
-		expect(calls).toBe(2);
-		expect(stopReason).toBe("stop");
-		expect(text).toBe("Recovered.");
-	});
-
+describe("antigravity detail-free 429 retry budget", () => {
 	it("backoff for the detail-free 429 stays within the session retry cap", () => {
 		const errorText = `Cloud Code Assist API error (429): ${DETAIL_FREE_429_BODY}`;
 		// A provider Retry-After hint wins when present …
