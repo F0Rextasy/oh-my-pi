@@ -197,14 +197,17 @@ const MISSING_SYSTEM_LIBRARY_RE =
  * own text (`libstdc++.so.6: cannot open shared object file`) one or more
  * levels down, so matching only the outermost message misses it.
  */
-function loadFailureText(error: unknown): string {
+function loadFailureParts(error: unknown): string[] {
 	const parts: string[] = [];
 	let current: unknown = error;
 	for (let depth = 0; current !== undefined && current !== null && depth < 8; depth++) {
 		parts.push(current instanceof Error ? current.message : String(current));
 		current = typeof current === "object" && "cause" in current ? current.cause : undefined;
 	}
-	return parts.join("\n");
+	return parts;
+}
+function loadFailureText(error: unknown): string {
+	return loadFailureParts(error).join("\n");
 }
 
 /**
@@ -234,7 +237,11 @@ export function describeFastembedLoadFailure(error: unknown): unknown {
 	const hint = fastembedLoadFailureHint(error);
 	if (hint === undefined) return error;
 	const detail = error instanceof Error ? error.message : String(error);
-	return new Error(`${detail} — ${hint}`, { cause: error });
+	// The worker serializes only this message, so a loader diagnostic buried
+	// in `cause` must be copied here or it never reaches the parent.
+	const loaderText = loadFailureParts(error).find(part => MISSING_SYSTEM_LIBRARY_RE.test(part));
+	const loaderSuffix = loaderText !== undefined && loaderText !== detail ? ` — caused by: ${loaderText}` : "";
+	return new Error(`${detail}${loaderSuffix} — ${hint}`, { cause: error });
 }
 
 /**

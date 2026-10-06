@@ -111,6 +111,16 @@ describe("fastembed native load failures", () => {
 		expect(described.cause).toBe(original);
 	});
 
+	test("carries a nested loader diagnostic into the serialized message", () => {
+		const nested = new Error("Cannot load library", {
+			cause: new Error("libstdc++.so.6: cannot open shared object file: No such file or directory"),
+		});
+		const described = describeFastembedLoadFailure(nested);
+		if (!(described instanceof Error)) throw new Error("expected an Error");
+		expect(described.message).toContain("libstdc++.so.6: cannot open shared object file");
+		expect(described.message).toContain("OMP_NATIVE_LIBRARY_PATH");
+	});
+
 	test("a dlopen failure is not retried as a missing install", () => {
 		// Re-installing the same prebuilt addons cannot fix a broken dlopen, and
 		// the runtime install costs ~270MB. Only "not installed here" retries.
