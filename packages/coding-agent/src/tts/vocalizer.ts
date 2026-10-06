@@ -168,6 +168,14 @@ export class Vocalizer {
 	pushDelta(text: string): void {
 		const speechSettings = this.#modelSource?.settings ?? settings;
 		if (this.#suspensions > 0 || !cfgSpeechEnabled.get(speechSettings)) return;
+		this.#pushText(text, speechSettings);
+	}
+
+	/**
+	 * Push text through the speakable pipeline. Gates (enabled, suspensions)
+	 * are the caller's job; this only routes to the latched pipeline.
+	 */
+	#pushText(text: string, speechSettings: Settings): void {
 		if (!text) return;
 		if (this.#enhanced || (!this.#speakable && this.#enhancer && cfgSpeechEnhanced.get(speechSettings))) {
 			this.#pushEnhanced(text);
@@ -229,19 +237,18 @@ export class Vocalizer {
 	 * press while speaking stops playback instead. Bypasses the
 	 * `speech.enabled` gate (pushDelta would no-op) while still honoring
 	 * suspensions, so on-demand use never requires continuous speech mode.
-	 * Returns the spoken text, or undefined when there was nothing to speak.
 	 */
-	speakLastText(text: string | undefined): string | undefined {
+	speakLastText(text: string | undefined): "spoken" | "stopped" | "suspended" | "empty" {
 		if (this.isSpeaking()) {
 			this.clear();
-			return undefined;
+			return "stopped";
 		}
 		const trimmed = text?.trim();
-		if (!trimmed) return undefined;
-		if (this.#suspensions > 0) return undefined;
-		this.#pushBypassingEnabledGate(trimmed);
+		if (!trimmed) return "empty";
+		if (this.#suspensions > 0) return "suspended";
+		this.#pushText(trimmed, this.#modelSource?.settings ?? settings);
 		this.flush();
-		return trimmed;
+		return "spoken";
 	}
 
 	/**
@@ -283,26 +290,6 @@ export class Vocalizer {
 	/** Resolve once the playback chain has drained (tests / shutdown). */
 	idle(): Promise<void> {
 		return this.#chain;
-	}
-	/**
-	 * Push text through the speakable pipeline without the `speech.enabled`
-	 * gate. Suspensions still apply (checked by the caller): push-to-talk owns
-	 * the audio device while active.
-	 */
-	#pushBypassingEnabledGate(text: string): void {
-		if (!text) return;
-		const speechSettings = this.#modelSource?.settings ?? settings;
-		if (this.#enhanced || (!this.#speakable && this.#enhancer && cfgSpeechEnhanced.get(speechSettings))) {
-			this.#pushEnhanced(text);
-			return;
-		}
-		this.#speakable ??= new SpeakableStream();
-		const speakable = this.#speakable;
-		this.#pushSegments(speakable.push(text));
-		this.#armIdle(() => {
-			if (this.#speakable !== speakable) return;
-			this.#pushSegments(speakable.flushIdle());
-		});
 	}
 
 	// --- Enhanced pipeline ---------------------------------------------------

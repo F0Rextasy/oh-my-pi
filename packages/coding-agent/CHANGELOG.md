@@ -10,6 +10,7 @@
 
 - RPC `open_session` and `switch_session` accept an optional `provider`/`modelId` pair that binds the session to that model instead of its saved one, as `--model` does at startup; `RpcClient.openSession()`/`switchSession()` and the Python client's `open_session()`/`switch_session()` take it too ([#13689](https://github.com/can1357/oh-my-pi/pull/13689) by [@alphastorm](https://github.com/alphastorm))
 - Added `compat.statefulResponses` to `models.yml`, so a provider or model can opt into or out of stored Responses chaining without the process-wide `PI_OPENAI_STATEFUL` ([#13686](https://github.com/can1357/oh-my-pi/pull/13686) by [@alphastorm](https://github.com/alphastorm)).
+- Added an `app.speech.speakLast` action that vocalizes the last assistant message on demand, stopping on a second press ([#12552](https://github.com/can1357/oh-my-pi/issues/12552), [#12652](https://github.com/can1357/oh-my-pi/pull/12652) by [@F0Rextasy](https://github.com/F0Rextasy)).
 
 ### Changed
 

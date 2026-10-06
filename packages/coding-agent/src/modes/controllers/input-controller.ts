@@ -2768,18 +2768,16 @@ export class InputController {
 	 * Independent of `speech.enabled`; reuses `speech.voice` / `tts.localVoice`.
 	 */
 	#speakLastAssistantMessage(): void {
-		if (vocalizer.isSpeaking()) {
-			vocalizer.clear();
-			return;
-		}
 		const message = this.ctx.session.getLastAssistantMessage?.();
 		const text = message?.content
 			.filter((part): part is { type: "text"; text: string } => part.type === "text")
 			.map(part => part.text)
 			.join("")
 			.trim();
-		const spoken = vocalizer.speakLastText(text);
-		if (spoken === undefined) {
+		const result = vocalizer.speakLastText(text);
+		if (result === "suspended") {
+			this.ctx.showStatus("Speech output is suspended");
+		} else if (result === "empty") {
 			this.ctx.showStatus("Nothing speakable in the last assistant message");
 		}
 	}
