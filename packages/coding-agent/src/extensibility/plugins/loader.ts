@@ -320,14 +320,8 @@ function resolveManifestEntryFiles(joined: string, expandDirectory: boolean): st
 	try {
 		stats = fs.statSync(joined);
 	} catch (err) {
-		// A missing entry is this function's documented "nothing loadable
-		// here" answer and stays quiet: `resolvePluginManifestEntries` reports
-		// it as a null resolvedPath, which is what install-time validation and
-		// the /plugins listing read. An entry the process is not allowed to
-		// read is a different condition with the same shape of outcome — the
-		// plugin still loads and contributes no module for this entry — but it
-		// is not the user's to discover by absence, and unlike the
-		// unreadable-root skips above it had no diagnostic at all. Same skip,
+		// A missing entry is the documented quiet answer (a null resolvedPath
+		// for validation to flag). An unreadable one gets the same skip,
 		// spoken aloud.
 		if (isUnreadableRoot(err)) {
 			logger.warn("plugins: skipping unreadable manifest entry", { path: joined });
@@ -338,6 +332,16 @@ function resolveManifestEntryFiles(joined: string, expandDirectory: boolean): st
 		return [joined];
 	}
 	if (expandDirectory) {
+		// The directory resolver below treats an unreadable directory like a
+		// missing one; warn here instead, the same way as the stat failure.
+		try {
+			fs.accessSync(joined, fs.constants.R_OK);
+		} catch (err) {
+			if (isUnreadableRoot(err)) {
+				logger.warn("plugins: skipping unreadable manifest entry", { path: joined });
+				return [];
+			}
+		}
 		return resolveExtensionDirectory(joined, PLUGIN_EXTENSION_DIRECTORY_OPTIONS).files;
 	}
 	const index = findExtensionDirectoryIndex(joined, MANIFEST_ENTRY_INDEX_NAMES);

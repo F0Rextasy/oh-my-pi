@@ -19,7 +19,7 @@
 - Large mermaid flowcharts and state diagrams render much faster while a response streams ([#14454](https://github.com/can1357/oh-my-pi/pull/14454) by [@H4vC](https://github.com/H4vC))
 
 ### Fixed
-- A plugin whose declared manifest entry could not be read for permission reasons was skipped silently, so it still loaded and registered no extensions, hooks, commands or tools while appearing healthy; the unreadable case is now warned with the entry path, while a missing entry stays quiet ([#13484](https://github.com/can1357/oh-my-pi/issues/13484)).
+- A plugin entry or directory the process may not read no longer vanishes silently; the skip now warns with the entry path, while a missing entry stays quiet ([#13484](https://github.com/can1357/oh-my-pi/issues/13484)).
 
 - Fixed the `/usage` sheet in Tern missing the Close button the other report sheets have ([#14455](https://github.com/can1357/oh-my-pi/pull/14455) by [@H4vC](https://github.com/H4vC)).
 - Fixed cancelling a bash command on Windows sometimes terminating an unrelated program ([#14454](https://github.com/can1357/oh-my-pi/pull/14454) by [@H4vC](https://github.com/H4vC))
