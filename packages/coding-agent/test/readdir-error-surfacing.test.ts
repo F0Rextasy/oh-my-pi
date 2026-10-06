@@ -20,6 +20,7 @@ import * as path from "node:path";
 import { loadAdvisorTranscriptCosts } from "@oh-my-pi/pi-coding-agent/advisor/transcript-recorder";
 import { ClaudeSessionStore } from "@oh-my-pi/pi-coding-agent/session/claude-session-store";
 import { CodexSessionStore } from "@oh-my-pi/pi-coding-agent/session/codex-session-store";
+import { readDirOutcome } from "@oh-my-pi/pi-coding-agent/utils/readdir";
 
 function fsError(code: string): NodeJS.ErrnoException {
 	const error = new Error(`${code}: simulated failure`) as NodeJS.ErrnoException;
@@ -64,6 +65,22 @@ afterEach(async () => {
 		const dir = tempDirs.pop();
 		if (dir) await fs.rm(dir, { recursive: true, force: true });
 	}
+});
+
+describe("readDirOutcome classification", () => {
+	it("reports ENOTDIR as an error rather than a missing directory", async () => {
+		const probe = path.join(await tempDir("enotdir"), "file");
+		await Bun.write(probe, "x\n");
+		failReaddirFor(probe, "ENOTDIR");
+		const outcome = await readDirOutcome(probe);
+		expect(outcome.status).toBe("error");
+	});
+
+	it("still reports ENOENT as a missing directory", async () => {
+		const probe = path.join(await tempDir("enoent"), "absent");
+		failReaddirFor(probe, "ENOENT");
+		expect(await readDirOutcome(probe)).toEqual({ status: "missing" });
+	});
 });
 
 describe("Claude session store readdir failures", () => {
