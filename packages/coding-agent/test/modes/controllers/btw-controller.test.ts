@@ -79,6 +79,12 @@ function makeCtx(session: InteractiveModeContext["session"], btwContainer = new 
 		showStatus: vi.fn(),
 		showError: vi.fn(),
 		handleBtwBranch: vi.fn(async () => {}),
+		// `#showHistory` reads both of these while constructing the panel
+		// (btw-controller.ts:516-517), so a fake without them throws before
+		// `ui.showOverlay` is ever reached. No push-to-talk key is bound, which
+		// is the honest default for a test that is not exercising dictation.
+		keybindings: { getKeys: () => [] },
+		dictationSpaceHold: () => false,
 		setTestLeafId(nextLeafId: string | null) {
 			leafId = nextLeafId;
 		},
