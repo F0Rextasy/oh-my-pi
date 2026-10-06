@@ -97,6 +97,7 @@
 - Fixed advisors staying quota-paused when another account's temporary auth block ends at the retry wait limit ([#14551](https://github.com/can1357/oh-my-pi/issues/14551)).
 - Fixed `omp worktree add` and other git operations failing with `git open: … does not appear to be a git repository` when the checkout directory name ends in `.git` ([#14553](https://github.com/can1357/oh-my-pi/issues/14553))
 - Fixed Mnemopi embedding workers (and other local-model workers) staying alive and holding gigabytes of RAM after the omp process that started them exited mid-embedding ([#14340](https://github.com/can1357/oh-my-pi/issues/14340))
+- Fixed ACP `allow_always` grants applying to a byte-different command or a different working directory; grants now cover the exact command in its directory ([#14305](https://github.com/can1357/oh-my-pi/issues/14305), [#14472](https://github.com/can1357/oh-my-pi/pull/14472) by [@F0Rextasy](https://github.com/F0Rextasy)).
 
 ## [18.6.2] - 2026-10-04
 
@@ -157,7 +158,6 @@
 - Advisor concerns and notes now reach an active same-run continuation after a terminal answer instead of being retained unnecessarily.
 
 ### Fixed
-- The ACP permission gate cached one decision per tool, so a single "Always reject" denied every later `bash` call in the session, including read-only commands the user never saw; decisions are now keyed on the command and a remembered denial names the command it applies to, so the model stops retrying ([#14305](https://github.com/can1357/oh-my-pi/issues/14305)).
 
 - Fixed background-job completions being lost when IRC-woken subagents finished while owned asynchronous work was still settling.
 - Fixed session reset leaving stale hashline edit snapshots available for later mismatch diagnostics.

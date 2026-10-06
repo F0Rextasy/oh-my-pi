@@ -883,8 +883,20 @@ it("allow_always: a command that differs in whitespace or line endings asks agai
 
 	await wrappedBash!.execute("call-1", { command: "npm test" }, undefined, undefined as never, undefined as never);
 	await wrappedBash!.execute("call-2", { command: "  npm test  " }, undefined, undefined as never, undefined as never);
-	await wrappedBash!.execute("call-3", { command: "printf \"<%s>\" build\r\n" }, undefined, undefined as never, undefined as never);
-	await wrappedBash!.execute("call-4", { command: "printf \"<%s>\" build\n" }, undefined, undefined as never, undefined as never);
+	await wrappedBash!.execute(
+		"call-3",
+		{ command: 'printf "<%s>" build\r\n' },
+		undefined,
+		undefined as never,
+		undefined as never,
+	);
+	await wrappedBash!.execute(
+		"call-4",
+		{ command: 'printf "<%s>" build\n' },
+		undefined,
+		undefined as never,
+		undefined as never,
+	);
 
 	expect(permissionSpy).toHaveBeenCalledTimes(4);
 	expect(bashTool.executeCalls).toBe(4);
